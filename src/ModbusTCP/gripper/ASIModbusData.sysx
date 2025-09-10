@@ -1,0 +1,26 @@
+MODULE ASIModbusData(SYSMODULE,VIEWONLY)
+    !***********************************************************
+    !
+    ! Copyright (c) 2025 ABB Robotics. All rights reserved.
+    ! Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+    !
+    !***********************************************************
+    !***********************************************************
+    ! Module: ASIModbusModule
+    ! Description: Provides Modbus RTU device definition and default socket/config for PoWa ASI.
+    ! Author: Kun Chang
+    ! Last Update: 2025-06-13
+
+    ! Modbus RTU device structure
+    RECORD ModbusRTUDevice
+        string Name;   ! Device name
+        byte ID;       ! Device ID
+    ENDRECORD
+
+    ! Default Modbus socket for PoWa ASI
+    var ModbusSocket PoWaASIMbSocket;
+
+    ! Default Modbus server configuration for PoWa ASI
+    CONST ModbusServerConfig PoWaASIConf:=["192.168.125.140",502,0.1,1,5,3];
+
+ENDMODULE

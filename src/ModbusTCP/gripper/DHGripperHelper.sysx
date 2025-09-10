@@ -1,0 +1,536 @@
+MODULE DHGripperHelper(SYSMODULE,VIEWONLY)
+    !***********************************************************
+    !
+    ! Copyright (c) 2025 ABB Robotics. All rights reserved.
+    ! Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+    !
+    !***********************************************************
+    !***********************************************************
+    ! Module: GripperHelper Template
+    ! Description: Helper module for DH gripper operations based on Modbus protocol.
+    !              Supports reading/writing ID, speed, force, position, etc.
+    !              Optional ModbusSocket parameter for multi-device/multi-connection scenarios.
+    ! Author: Kun Chang
+    ! Last Update: 2025-06-13
+    ! -------------------------------------------------------------------------
+    !    ! Example: Gripper operation demo
+    !    ! Demonstrates basic usage of DHGripper functions.
+    !    PROC DHExample()
+    !        VAR byte gripperState;
+    !        TPWrite "Current ID "\Num:=DHGripperGetID();
+    !        DHGripperInit ;
+    !        WaitTime 3;
+    !        DHGripperSetMoveSpeed 50;
+    !        TPWrite "Current MoveSpeed "\Num:=DHGripperGetMoveSpeed();
+    !        DHGripperSetMoveForce 30;
+    !        TPWrite "Current MoveForce "\Num:=DHGripperGetMoveForce();
+    !        DHGripperSetRotateForce 30;
+    !        TPWrite "Current RotateForce "\Num:=DHGripperGetRotateForce();
+    !        DHGripperSetRotateSpeed 50;
+    !        TPWrite "Current RotateSpeed "\Num:=DHGripperGetRotateSpeed();
+    !        WHILE TRUE DO
+    !            FOR index FROM 0 TO 1000 STEP 200 DO
+    !                DHGripperMoveTo index;
+    !                WaitTime 1;
+    !                gripperState:=DHGripperGetState();
+    !                IF gripperState=DH_STATE_MOVING THEN
+    !                    ! State output commented
+    !                ELSEIF gripperState=DH_STATE_STOP_NO_OBJECT THEN
+    !                    ! State output commented
+    !                ELSEIF gripperState=DH_STATE_STOP_WITH_OBJECT THEN
+    !                    ! State output commented
+    !                ELSEIF gripperState=DH_STATE_OBJECT_DROPPED THEN
+    !                    ! State output commented
+    !                ENDIF
+    !                DHGripperRotateABSTo index/5;
+    !                WaitTime 1;
+    !                TPWrite "Current Position "\Num:=DHGripperGetPosition();
+    !            ENDFOR
+    !        ENDWHILE
+    !    ENDPROC
+
+    LOCAL PERS ModbusRTUDevice DHDefGripperInfo:=["DH Gripper",1];
+
+    ! Gripper state codes
+    CONST byte DH_STATE_MOVING:=0x00;
+    ! Moving
+    CONST byte DH_STATE_STOP_NO_OBJECT:=0x01;
+    ! Stopped, no object detected
+    CONST byte DH_STATE_STOP_WITH_OBJECT:=0x02;
+    ! Stopped, object detected
+    CONST byte DH_STATE_OBJECT_DROPPED:=0x03;
+    ! Object dropped
+
+    ! Gripper rotation state codes
+    CONST byte DH_STATE_ROTATING:=0x00;
+    ! Rotating
+    CONST byte DH_STATE_ROTATE_ARRIVED:=0x01;
+    ! Rotation arrived
+    CONST byte DH_STATE_ROTATE_BLOCKED:=0x02;
+    ! Rotation blocked
+
+    ! Gripper error codes
+    CONST byte DH_ERROR_NONE:=0x00;
+    ! No error
+    CONST byte DH_ERROR_OVERHEAT:=0x04;
+    ! Overheat
+    CONST byte DH_ERROR_OVERLOAD:=0x08;
+    ! Overload
+    CONST byte DH_ERROR_OVERSPEED:=0x11;
+    ! Overspeed
+
+    ! Initializes the gripper.
+    ! Parameters:
+    !   InitType (byte, optional): Initialization type.
+    !   GripperInfo (ModbusRTUDevice, INOUT, optional): Gripper device info.
+    PROC DHGripperInit(\byte InitType\inout ModbusRTUDevice GripperInfo)
+        VAR byte defaultInitType:=0x01;
+
+        VAR string strFunction:="DH Gripper Init ";
+        IF Present(InitType) THEN
+            defaultInitType:=InitType;
+        ENDIF
+
+        IF Present(GripperInfo) THEN
+            FC06_WriteSingleRegister 0x0100,defaultInitType,GripperInfo.ID,PoWaASIMBSocket,PoWaASIConf;
+        ELSE
+            FC06_WriteSingleRegister 0x0100,defaultInitType,DHDefGripperInfo.ID,PoWaASIMBSocket,PoWaASIConf;
+        ENDIF
+
+    ERROR
+        DHGripperErrRecover strFunction,ERRNO;
+        RAISE ;
+    ENDPROC
+
+    ! Gets the gripper ID.
+    ! Parameters:
+    !   GripperInfo (ModbusRTUDevice, INOUT, optional): Gripper device info.
+    ! Returns: num - Gripper ID.
+    FUNC num DHGripperGetID(\inout ModbusRTUDevice GripperInfo)
+        VAR string strFunction:="DH Gripper get ID ";
+        VAR num ReceiveData{2};
+
+        IF Present(GripperInfo) THEN
+            FC03_ReadHoldingRegisters 0x0302,0x0001,receiveData,GripperInfo.ID,PoWaASIMBSocket,PoWaASIConf;
+        ELSE
+            FC03_ReadHoldingRegisters 0x0302,0x0001,receiveData,DHDefGripperInfo.ID,PoWaASIMBSocket,PoWaASIConf;
+        ENDIF
+        RETURN receiveData{1};
+
+    ERROR
+        DHGripperErrRecover strFunction,ERRNO;
+        RAISE;
+    ENDFUNC
+
+    ! Sets the gripper ID.
+    ! Parameters:
+    !   Id (byte): New ID.
+    !   GripperInfo (ModbusRTUDevice, INOUT, optional): Gripper device info.
+    PROC DHGripperSetID(byte Id\inout ModbusRTUDevice GripperInfo)
+        VAR string strFunction:="DH Gripper Set ID ";
+
+
+        IF Present(GripperInfo) THEN
+            FC06_WriteSingleRegister 0x0302,Id,GripperInfo.ID,PoWaASIMBSocket,PoWaASIConf;
+        ELSE
+            FC06_WriteSingleRegister 0x0302,Id,DHDefGripperInfo.ID,PoWaASIMBSocket,PoWaASIConf;
+        ENDIF
+
+    ERROR
+        DHGripperErrRecover strFunction,ERRNO;
+        RAISE ;
+    ENDPROC
+
+    ! Gets the gripper state.
+    ! Parameters:
+    !   GripperInfo (ModbusRTUDevice, INOUT, optional): Gripper device info.
+    ! Returns: byte - State code.
+    FUNC byte DHGripperGetState(\inout ModbusRTUDevice GripperInfo)
+        VAR string strFunction:="DH Gripper get state ";
+        VAR num receiveData{2};
+
+        IF Present(GripperInfo) THEN
+            FC03_ReadHoldingRegisters 0x0201,0x0001,receiveData,GripperInfo.ID,PoWaASIMBSocket,PoWaASIConf;
+        ELSE
+            FC03_ReadHoldingRegisters 0x0201,0x0001,receiveData,DHDefGripperInfo.ID,PoWaASIMBSocket,PoWaASIConf;
+        ENDIF
+        RETURN receiveData{1};
+    ERROR
+        DHGripperErrRecover strFunction,ERRNO;
+        RAISE ;
+    ENDFUNC
+
+
+    ! Gets the gripper error state.
+    ! Parameters:
+    !   GripperInfo (ModbusRTUDevice, INOUT, optional): Gripper device info.
+    ! Returns: byte - Error state code.
+    FUNC byte DHGripperGetErrState(\inout ModbusRTUDevice GripperInfo)
+        VAR string strFunction:="DH Gripper get state ";
+        VAR num receiveData{2};
+
+
+        IF Present(GripperInfo) THEN
+            FC03_ReadHoldingRegisters 0x0205,0x0001,receiveData,GripperInfo.ID,PoWaASIMBSocket,PoWaASIConf;
+        ELSE
+            FC03_ReadHoldingRegisters 0x0205,0x0001,receiveData,DHDefGripperInfo.ID,PoWaASIMBSocket,PoWaASIConf;
+        ENDIF
+        RETURN receiveData{1};
+    ERROR
+        DHGripperErrRecover strFunction,ERRNO;
+        RAISE ;
+    ENDFUNC
+
+    ! Moves the gripper to the specified position.
+    ! Parameters:
+    !   GripperPos (num): Target position.
+    !   GripperInfo (ModbusRTUDevice, INOUT, optional): Gripper device info.
+    PROC DHGripperMoveTo(num GripperPos\inout ModbusRTUDevice GripperInfo)
+        VAR string strFunction:="DH Gripper move to ";
+
+        IF Present(GripperInfo) THEN
+            FC06_WriteSingleRegister 0x0103,GripperPos,GripperInfo.ID,PoWaASIMBSocket,PoWaASIConf;
+        ELSE
+            FC06_WriteSingleRegister 0x0103,GripperPos,DHDefGripperInfo.ID,PoWaASIMBSocket,PoWaASIConf;
+        ENDIF
+
+    ERROR
+        DHGripperErrRecover strFunction,ERRNO;
+        RAISE ;
+    ENDPROC
+
+    ! Rotates the gripper by a relative angle.(INT16)
+    ! Parameters:
+    !   GripperAngle (num): Target angle INT16
+    !   GripperInfo (ModbusRTUDevice, INOUT, optional): Gripper device info.
+    PROC DHGripperRotateRel(num GripperAngle\inout ModbusRTUDevice GripperInfo)
+        VAR string strFunction:="DH Gripper rotate to ";
+
+        IF Present(GripperInfo) THEN
+            FC06_WriteSingleRegister 0x0109,Int16ToUint16(GripperAngle),GripperInfo.ID,PoWaASIMBSocket,PoWaASIConf;
+        ELSE
+            FC06_WriteSingleRegister 0x0109,Int16ToUint16(GripperAngle),DHDefGripperInfo.ID,PoWaASIMBSocket,PoWaASIConf;
+        ENDIF
+
+    ERROR
+        DHGripperErrRecover strFunction,ERRNO;
+        RAISE ;
+    ENDPROC
+
+
+    ! Rotates the gripper to an absolute angle.
+    ! Parameters:
+    !   GripperAngle (num): Target absolute angle.
+    !   GripperInfo (ModbusRTUDevice, INOUT, optional): Gripper device info.
+    PROC DHGripperRotateABSTo(num GripperAngle\inout ModbusRTUDevice GripperInfo)
+        VAR string strFunction:="DH Gripper rotate to ";
+
+        VAR byte H;
+        VAR byte L;
+        VAR num outputs{2};
+        VAR num angleH;
+        VAR num angleL;
+
+        IF GripperAngle<=0x7FFF AND GripperAngle>-0x800 THEN
+            angleL:=GripperAngle;
+            angleH:=0;
+        ELSE
+            IF GripperAngle>=0 THEN
+                angleH:=GripperAngle DIV 0x7FFF;
+                angleL:=GripperAngle MOD 0x7FFF;
+            ELSE
+                angleH:=GripperAngle DIV 0x800;
+                angleL:=GripperAngle MOD 0x800;
+            ENDIF
+
+        ENDIF
+
+        outputs{1}:=Int16ToUint16(angleL);
+        outputs{2}:=Int16ToUint16(angleH);
+
+        IF Present(GripperInfo) THEN
+            FC10_WriteMultipleRegisters 0x0105,2,outputs,GripperInfo.ID,PoWaASIMBSocket,PoWaASIConf;
+        ELSE
+            FC10_WriteMultipleRegisters 0x0105,2,outputs,DHDefGripperInfo.ID,PoWaASIMBSocket,PoWaASIConf;
+        ENDIF
+
+    ERROR
+        DHGripperErrRecover strFunction,ERRNO;
+        RAISE ;
+    ENDPROC
+
+
+    ! Gets the gripper initialization state.
+    ! Parameters:
+    !   GripperInfo (ModbusRTUDevice, INOUT, optional): Gripper device info.
+    ! Returns: bool - TRUE if initialized, FALSE otherwise.
+    FUNC bool DHGripperGetInitState(\inout ModbusRTUDevice GripperInfo)
+        VAR string strFunction:="DH Gripper get init state ";
+        VAR num receiveData{2};
+
+
+        IF Present(GripperInfo) THEN
+            FC03_ReadHoldingRegisters 0x0200,0x0001,receiveData,GripperInfo.ID,PoWaASIMBSocket,PoWaASIConf;
+        ELSE
+            FC03_ReadHoldingRegisters 0x0200,0x0001,receiveData,DHDefGripperInfo.ID,PoWaASIMBSocket,PoWaASIConf;
+        ENDIF
+
+        If (receiveData{1}=1) THEN
+            RETURN TRUE;
+        ELSE
+            RETURN FALSE;
+        ENDIF
+
+    ERROR
+        DHGripperErrRecover strFunction,ERRNO;
+        RAISE;
+    ENDFUNC
+
+    ! Sets the gripper move speed.
+    ! Parameters:
+    !   Speed (num): Move speed.
+    !   GripperInfo (ModbusRTUDevice, INOUT, optional): Gripper device info.
+    PROC DHGripperSetMoveSpeed(num Speed\inout ModbusRTUDevice GripperInfo)
+        VAR string strFunction:="DH Gripper set move speed ";
+
+        IF Present(GripperInfo) THEN
+            FC06_WriteSingleRegister 0x0104,Speed,GripperInfo.ID,PoWaASIMBSocket,PoWaASIConf;
+        ELSE
+            FC06_WriteSingleRegister 0x0104,Speed,DHDefGripperInfo.ID,PoWaASIMBSocket,PoWaASIConf;
+        ENDIF
+
+
+    ERROR
+        DHGripperErrRecover strFunction,ERRNO;
+    ENDPROC
+
+    ! Sets the gripper rotate speed.
+    ! Parameters:
+    !   Speed (num): Rotate speed.
+    !   GripperInfo (ModbusRTUDevice, INOUT, optional): Gripper device info.
+    PROC DHGripperSetRotateSpeed(num Speed\inout ModbusRTUDevice GripperInfo)
+        VAR string strFunction:="DH Gripper set rotate speed ";
+        VAR ModbusServerConfig mbConf;
+        VAR ModbusRTUDevice mbDeviceInfo;
+
+        IF Present(GripperInfo) THEN
+            FC06_WriteSingleRegister 0x0107,Speed,GripperInfo.ID,PoWaASIMBSocket,PoWaASIConf;
+        ELSE
+            FC06_WriteSingleRegister 0x0107,Speed,DHDefGripperInfo.ID,PoWaASIMBSocket,PoWaASIConf;
+        ENDIF
+
+
+    ERROR
+        DHGripperErrRecover strFunction,ERRNO;
+    ENDPROC
+
+    ! Gets the gripper move speed.
+    ! Parameters:
+    !   GripperInfo (ModbusRTUDevice, INOUT, optional): Gripper device info.
+    ! Returns: num - Move speed.
+    FUNC num DHGripperGetMoveSpeed(\inout ModbusRTUDevice GripperInfo)
+        VAR string strFunction:="DH Gripper get move speed ";
+        VAR num ReceiveData{2};
+
+        IF Present(GripperInfo) THEN
+            FC03_ReadHoldingRegisters 0x0104,0x0001,receiveData,GripperInfo.ID,PoWaASIMBSocket,PoWaASIConf;
+        ELSE
+            FC03_ReadHoldingRegisters 0x0104,0x0001,receiveData,DHDefGripperInfo.ID,PoWaASIMBSocket,PoWaASIConf;
+        ENDIF
+        return receiveData{1};
+
+
+    ERROR
+        DHGripperErrRecover strFunction,ERRNO;
+        RAISE ;
+    ENDFUNC
+
+    ! Gets the gripper rotate speed.
+    ! Parameters:
+    !   GripperInfo (ModbusRTUDevice, INOUT, optional): Gripper device info.
+    ! Returns: num - Rotate speed.
+    FUNC num DHGripperGetRotateSpeed(\inout ModbusRTUDevice GripperInfo)
+        VAR string strFunction:="DH Gripper get rotate speed ";
+        VAR num ReceiveData{2};
+
+        IF Present(GripperInfo) THEN
+            FC03_ReadHoldingRegisters 0x0107,0x0001,receiveData,GripperInfo.ID,PoWaASIMBSocket,PoWaASIConf;
+        ELSE
+            FC03_ReadHoldingRegisters 0x0107,0x0001,receiveData,DHDefGripperInfo.ID,PoWaASIMBSocket,PoWaASIConf;
+        ENDIF
+        RETURN ReceiveData{1};
+
+
+    ERROR
+        DHGripperErrRecover strFunction,ERRNO;
+        RAISE ;
+    ENDFUNC
+
+    ! Sets the gripper move force.
+    ! Parameters:
+    !   Force (num): Move force.
+    !   GripperInfo (ModbusRTUDevice, INOUT, optional): Gripper device info.
+    PROC DHGripperSetMoveForce(num Force\inout ModbusRTUDevice GripperInfo)
+        VAR string strFunction:="DH Gripper set move force ";
+
+        IF Present(GripperInfo) THEN
+            FC06_WriteSingleRegister 0x0101,Force,GripperInfo.ID,PoWaASIMBSocket,PoWaASIConf;
+        ELSE
+            FC06_WriteSingleRegister 0x0101,Force,DHDefGripperInfo.ID,PoWaASIMBSocket,PoWaASIConf;
+        ENDIF
+
+
+    ERROR
+        DHGripperErrRecover strFunction,ERRNO;
+        RAISE ;
+    ENDPROC
+
+    ! Sets the gripper rotate force.
+    ! Parameters:
+    !   Force (num): Rotate force.
+    !   GripperInfo (ModbusRTUDevice, INOUT, optional): Gripper device info.
+    PROC DHGripperSetRotateForce(num Force\inout ModbusRTUDevice GripperInfo)
+        VAR string strFunction:="DH Gripper set rotate force ";
+
+        IF Present(GripperInfo) THEN
+            FC06_WriteSingleRegister 0x0108,Force,GripperInfo.ID,PoWaASIMBSocket,PoWaASIConf;
+        ELSE
+            FC06_WriteSingleRegister 0x0108,Force,DHDefGripperInfo.ID,PoWaASIMBSocket,PoWaASIConf;
+        ENDIF
+
+
+    ERROR
+        DHGripperErrRecover strFunction,ERRNO;
+        RAISE ;
+    ENDPROC
+
+    ! Gets the gripper rotate force.
+    ! Parameters:
+    !   GripperInfo (ModbusRTUDevice, INOUT, optional): Gripper device info.
+    ! Returns: num - Rotate force.
+    FUNC num DHGripperGetRotateForce(\inout ModbusRTUDevice GripperInfo)
+        VAR string strFunction:="DH Gripper get rotate force ";
+        VAR num ReceiveData{2};
+
+        IF Present(GripperInfo) THEN
+            FC03_ReadHoldingRegisters 0x0108,0x0001,receiveData,GripperInfo.ID,PoWaASIMBSocket,PoWaASIConf;
+        ELSE
+            FC03_ReadHoldingRegisters 0x0108,0x0001,receiveData,DHDefGripperInfo.ID,PoWaASIMBSocket,PoWaASIConf;
+        ENDIF
+        RETURN receiveData{1};
+
+    ERROR
+        DHGripperErrRecover strFunction,ERRNO;
+        RAISE ;
+    ENDFUNC
+
+    ! Gets the gripper move force.
+    ! Parameters:
+    !   GripperInfo (ModbusRTUDevice, INOUT, optional): Gripper device info.
+    ! Returns: num - Move force.
+    FUNC num DHGripperGetMoveForce(\inout ModbusRTUDevice GripperInfo)
+        VAR string strFunction:="DH Gripper get move force ";
+        VAR num ReceiveData{2};
+
+        IF Present(GripperInfo) THEN
+            FC03_ReadHoldingRegisters 0x0101,0x0001,receiveData,GripperInfo.ID,PoWaASIMBSocket,PoWaASIConf;
+        ELSE
+            FC03_ReadHoldingRegisters 0x0101,0x0001,receiveData,DHDefGripperInfo.ID,PoWaASIMBSocket,PoWaASIConf;
+        ENDIF
+        RETURN receiveData{1};
+
+    ERROR
+        DHGripperErrRecover strFunction,ERRNO;
+        RAISE ;
+    ENDFUNC
+
+    ! Gets the current gripper position.
+    ! Parameters:
+    !   GripperInfo (ModbusRTUDevice, INOUT, optional): Gripper device info.
+    ! Returns: num - Current position.
+    FUNC num DHGripperGetPosition(\inout ModbusRTUDevice GripperInfo)
+        VAR string strFunction:="DH Gripper get position ";
+        VAR num ReceiveData{2};
+
+        IF Present(GripperInfo) THEN
+            FC03_ReadHoldingRegisters 0x0202,0x0001,receiveData,GripperInfo.ID,PoWaASIMBSocket,PoWaASIConf;
+        ELSE
+            FC03_ReadHoldingRegisters 0x0202,0x0001,receiveData,DHDefGripperInfo.ID,PoWaASIMBSocket,PoWaASIConf;
+        ENDIF
+        RETURN receiveData{1};
+
+
+    ERROR
+        DHGripperErrRecover strFunction,ERRNO;
+        RAISE ;
+    ENDFUNC
+
+    ! Gets the absolute angle of the gripper.
+    ! Parameters:
+    !   GripperInfo (ModbusRTUDevice, INOUT, optional): Gripper device info.
+    ! Returns: num - Absolute angle.
+    FUNC num DHGripperGetABSAngle(\inout ModbusRTUDevice GripperInfo)
+        VAR string strFunction:="DH Gripper get position ";
+        VAR num ReceiveData{2};
+
+        VAR num result;
+        VAR num AngleL;
+        VAR num AngleH;
+
+
+        IF Present(GripperInfo) THEN
+            FC03_ReadHoldingRegisters 0x0208,0x0002,receiveData,GripperInfo.ID,PoWaASIMBSocket,PoWaASIConf;
+        ELSE
+            FC03_ReadHoldingRegisters 0x0208,0x0002,receiveData,DHDefGripperInfo.ID,PoWaASIMBSocket,PoWaASIConf;
+        ENDIF
+
+        AngleL:=Uint16ToInt16(receiveData{1}); !-32768,32767
+        AngleH:=Uint16ToInt16(receiveData{2}); !-160,+160
+        result:=AngleL+AngleH*32768;
+
+        RETURN result;
+
+
+    ERROR
+        DHGripperErrRecover strFunction,ERRNO;
+        RAISE ;
+    ENDFUNC
+
+    ! Gets the gripper rotation state.
+    ! Parameters:
+    !   GripperInfo (ModbusRTUDevice, INOUT, optional): Gripper device info.
+    ! Returns: num - Rotation state.
+    FUNC num DHGripperGetRotateState(\inout ModbusRTUDevice GripperInfo)
+        VAR string strFunction:="DH Gripper get position ";
+        VAR num ReceiveData{2};
+
+        IF Present(GripperInfo) THEN
+            FC03_ReadHoldingRegisters 0x020B,0x0001,receiveData,GripperInfo.ID,PoWaASIMBSocket,PoWaASIConf;
+        ELSE
+            FC03_ReadHoldingRegisters 0x020B,0x0002,receiveData,DHDefGripperInfo.ID,PoWaASIMBSocket,PoWaASIConf;
+        ENDIF
+
+        RETURN receiveData{1};
+
+    ERROR
+        DHGripperErrRecover strFunction,ERRNO;
+        RAISE ;
+
+    ENDFUNC
+
+    LOCAL PROC DHGripperErrRecover(string FunctionName,errnum ErrNumber)
+        VAR string errMessage;
+        errMessage:=FunctionName+" ErrCode: "+ValToStr(ERRNO);
+        IF ERRNO=ERR_MB_TIMEOUT THEN
+            TPWrite errMessage+" "+"ERR_MB_TIMEOUT";
+        ENDIF
+
+        IF ERRNO=ERR_MB_FUNCTION THEN
+            TPWrite errMessage+" "+"ERR_MB_FUNCTION";
+        ENDIF
+        IF ERRNO=ERR_MB_FORMAT THEN
+            TPWrite errMessage+" "+"ERR_MB_FORMAT";
+        ENDIF
+    ENDPROC
+
+ENDMODULE

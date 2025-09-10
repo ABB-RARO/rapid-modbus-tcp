@@ -1,0 +1,494 @@
+MODULE ModbusTCPServer(SYSMODULE,VIEWONLY)
+    !***********************************************************
+    !
+    ! Copyright (c) 2025 ABB Robotics. All rights reserved.
+    ! Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+    !
+    !***********************************************************
+    !******************* CONST ********************************
+    CONST num MIN_MODBUS_FRAME:=12;
+    CONST num SYS_OUTPUT_COILS_MIN:=0;
+    CONST num SYS_OUTPUT_COILS_MAX:=15;
+    CONST num SYS_INPUT_COILS_MIN:=16;
+    CONST num SYS_INPUT_COILS_MAX:=31;
+    CONST num USER_OUTPUT_COILS_MIN:=32;
+    CONST num USER_OUTPUT_COILS_MAX:=95;
+    CONST num USER_INPUT_COILS_MIN:=96;
+    CONST num USER_INPUT_COILS_MAX:=159;
+    CONST num SYS_HOLDING_REGISTERS_MIN:=0;
+    CONST num SYS_HOLDING_REGISTERS_MAX:=49;
+    CONST num USER_SEND_REGISTERS_MIN:=50;
+    CONST num USER_SEND_REGISTERS_MAX:=149;
+    CONST num USER_RECV_REGISTERS_MIN:=150;
+    CONST num USER_RECV_REGISTERS_MAX:=299;
+    !***********************************************************
+
+    !******************* RAW REG DATA **************************
+    ! The latest raw data
+    PERS num MbSysRegsValue{25};
+    !***********************************************************
+
+    PROC MbParseRequest(VAR byte RequestBytes{*},
+        INOUT ModbusMBAP ReqMBAP,INOUT num ReqFunctionCode,
+        INOUT num ReqStartAddress,INOUT num ReqQuantity,
+        INOUT num ReqByteCount,INOUT byte ReqValues{*},
+        INOUT num ErrCode,INOUT string ErrMsg)
+        VAR num coilValue;
+        ReqMBAP:=BytesToMBAP(RequestBytes);
+        ReqFunctionCode:=RequestBytes{8};
+
+        IF ReqFunctionCode<>MB_READ_COILS AND ReqFunctionCode<>MB_READ_HOLDING_REGISTERS AND
+        ReqFunctionCode<>MB_WRITE_SINGLE_COIL AND ReqFunctionCode<>MB_WRITE_SINGLE_REGISTER AND
+        ReqFunctionCode<>MB_WRITE_MULTIPLE_COILS AND ReqFunctionCode<>MB_WRITE_MULTIPLE_REGISTERS
+        THEN
+            ErrCode:=MB_ILLEGAL_FUNCTION;
+            errMsg:="Unsupported function code: "+ValToStr(ReqFunctionCode);
+            RETURN ;
+        ENDIF
+
+        ReqStartAddress:=TwoBytesToUInt16(RequestBytes{9},RequestBytes{10});
+
+        TEST ReqFunctionCode
+        CASE MB_READ_COILS:
+            ReqQuantity:=TwoBytesToUInt16(RequestBytes{11},RequestBytes{12});
+            IF ReqQuantity=0 THEN
+                ErrCode:=MB_ILLEGAL_DATA_VALUE;
+                errMsg:="FC01 Read Coils: Quantity must be at least 1";
+                RETURN ;
+            ENDIF
+            ! For example:
+            ! StartAddr:158 Quantity:3 => Read158&159&160, 160 out of range
+            IF ReqStartAddress+ReqQuantity-1>USER_INPUT_COILS_MAX THEN
+                ErrCode:=MB_ILLEGAL_DATA_ADDRESS;
+                errMsg:="FC01 Read Coils: Failed to read at address "+ValToStr(ReqStartAddress+ReqQuantity-1);
+                RETURN ;
+            ENDIF
+        CASE MB_READ_HOLDING_REGISTERS:
+            ReqQuantity:=TwoBytesToUInt16(RequestBytes{11},RequestBytes{12});
+            IF ReqQuantity=0 THEN
+                errMsg:="FC03 Read Holding Registers: Quantity must be at least 1";
+                ErrCode:=MB_ILLEGAL_DATA_VALUE;
+                RETURN ;
+            ENDIF
+            ! For example:
+            ! StartAddr:298 Quantity:3 => Read298&299&300, 300 out of range
+            IF ReqStartAddress+ReqQuantity-1>USER_RECV_REGISTERS_MAX THEN
+                errMsg:="FC03 Read Holding Registers: Failed to read at address "+ValToStr(ReqStartAddress+ReqQuantity-1);
+                ErrCode:=MB_ILLEGAL_DATA_ADDRESS;
+                RETURN ;
+            ENDIF
+        CASE MB_WRITE_SINGLE_COIL:
+            IF (ReqStartAddress<=SYS_OUTPUT_COILS_MAX AND ReqStartAddress>=SYS_OUTPUT_COILS_MIN) OR (ReqStartAddress>=USER_OUTPUT_COILS_MIN AND ReqStartAddress<=USER_OUTPUT_COILS_MAX) OR ReqStartAddress>USER_INPUT_COILS_MAX THEN
+                errMsg:="FC05 Write Single Coil: Failed to write at address "+ValToStr(ReqStartAddress);
+                ErrCode:=MB_ILLEGAL_DATA_ADDRESS;
+                RETURN ;
+            ENDIF
+            coilValue:=TwoBytesToUInt16(RequestBytes{11},RequestBytes{12});
+            IF coilValue<>0xFF00 AND coilValue<>0x0000 THEN
+                errMsg:="FC05 Write Single Coil: Illegal coil value "+ "0x"+ByteToStr(RequestBytes{11}\Hex);
+                ErrCode:=MB_ILLEGAL_DATA_VALUE;
+                RETURN ;
+            ENDIF
+        CASE MB_WRITE_SINGLE_REGISTER:
+            IF ReqStartAddress<USER_RECV_REGISTERS_MIN OR ReqStartAddress>USER_RECV_REGISTERS_MAX THEN
+                errMsg:="FC06 Write Single Register: Failed to write at address "+ValToStr(ReqStartAddress);
+                ErrCode:=MB_ILLEGAL_DATA_ADDRESS;
+                RETURN ;
+            ENDIF
+        CASE MB_WRITE_MULTIPLE_COILS:
+            ReqQuantity:=TwoBytesToUInt16(RequestBytes{11},RequestBytes{12});
+            IF ReqQuantity=0 THEN
+                errMsg:="FC0F Write Multiple Coils: Quantity must be at least 1";
+                ErrCode:=MB_ILLEGAL_DATA_VALUE;
+                RETURN ;
+            ENDIF
+            IF (ReqStartAddress+ReqQuantity-1<=SYS_OUTPUT_COILS_MAX AND ReqStartAddress+ReqQuantity-1>=SYS_OUTPUT_COILS_MIN)
+            OR (ReqStartAddress+ReqQuantity-1>=USER_OUTPUT_COILS_MIN AND ReqStartAddress+ReqQuantity-1<=USER_OUTPUT_COILS_MAX)
+            OR (ReqStartAddress+ReqQuantity-1>USER_INPUT_COILS_MAX)
+            OR (ReqStartAddress<=SYS_OUTPUT_COILS_MAX AND ReqStartAddress>=SYS_OUTPUT_COILS_MIN)
+            OR (ReqStartAddress>=USER_OUTPUT_COILS_MIN AND ReqStartAddress<=USER_OUTPUT_COILS_MAX)
+            OR (ReqStartAddress>USER_INPUT_COILS_MAX) THEN
+                errMsg:="FC0F Write Multiple Coils: Failed to Write at address "+ValToStr(ReqStartAddress) + ","+ValToStr(ReqStartAddress+ReqQuantity-1);
+                ErrCode:=MB_ILLEGAL_DATA_ADDRESS;
+                RETURN ;
+            ENDIF
+            ReqByteCount:=RequestBytes{13};
+
+            IF ReqByteCount<>(ReqQuantity+7) DIV 8 THEN
+                errMsg:="FC0F Write Multiple Coils: Byte count mismatch";
+                ErrCode:=MB_ILLEGAL_DATA_VALUE;
+                RETURN ;
+            ENDIF
+
+            FOR i FROM 1 TO ReqByteCount DO
+                ReqValues{i}:=RequestBytes{14+i-1};
+            ENDFOR
+        CASE MB_WRITE_MULTIPLE_REGISTERS:
+            ReqQuantity:=TwoBytesToUInt16(RequestBytes{11},RequestBytes{12});
+            IF ReqQuantity=0 THEN
+                errMsg:="FC10 Write Multiple Registers: Quantity must be at least 1";
+                ErrCode:=MB_ILLEGAL_DATA_VALUE;
+                RETURN ;
+            ENDIF
+            IF ReqStartAddress+ReqQuantity-1>USER_RECV_REGISTERS_MAX 
+            OR ReqStartAddress+ReqQuantity-1<USER_RECV_REGISTERS_MIN 
+            OR ReqStartAddress>USER_RECV_REGISTERS_MAX 
+            OR ReqStartAddress<USER_RECV_REGISTERS_MIN THEN
+                errMsg:="FC10 Write Multiple Registers: Failed to Write at address "+ValToStr(ReqStartAddress) + ","+ValToStr(ReqStartAddress+ReqQuantity-1);
+                ErrCode:=MB_ILLEGAL_DATA_ADDRESS;
+                RETURN ;
+            ENDIF
+            ReqByteCount:=RequestBytes{13};
+            IF ReqByteCount<>(ReqQuantity*2) THEN
+                errMsg:="FC10 Write Multiple Registers: Byte count mismatch";
+                ErrCode:=MB_ILLEGAL_DATA_VALUE;
+                RETURN ;
+            ENDIF
+            FOR i FROM 1 TO ReqByteCount DO
+                ReqValues{i}:=RequestBytes{14+i-1};
+            ENDFOR
+        DEFAULT:
+        ENDTEST
+        ErrCode:=0x00;
+    ENDPROC
+
+    PROC MbRequestHandle(byte RequestBytes{*},INOUT byte ResBytes{*},INOUT num ResBytesLen)
+        VAR num errCode;
+        VAR string errMsg;
+        !------------REQUEST DATA DECLARE----------------------------
+        VAR ModbusMBAP reqMBAP;
+        VAR num ReqFunctionCode;
+        ! ### 01rCoils 02rDisInputs 03rHoldRegs 04rRegs 05wSingleCoil 06wSingleReg 15wCoils 16wRegs
+        VAR num reqStartAddress;
+        ! ### 01rCoils 02rDisInputs 03rHoldRegs 04rRegs 15wCoils
+        VAR num reqQuantity;
+        ! ### 15wCoils 16wRegs
+        VAR num reqByteCount;
+        ! ### Multi: 15wCoils 16wRegs Single: 05wSingleCoil 06wSingleReg
+        VAR byte reqValues{260};
+        !------------REQUEST DATA DECLARE----------------------------
+
+
+        !-------------RESPONSE DATA DECLARE----------------------------
+        VAR ModbusMBAP ResMBAP;
+        VAR num resFunctionCode;
+        ! ### 01rCoils 02rDisInputs 03rHoldRegs 04rRegs
+        VAR num resByteQuantity;
+        ! ### 05wSingleCoil 06wSingleReg
+        VAR num ResAddress;
+        ! ### 15wCoils 16wRegs
+        VAR num ResStartAddress;
+        ! ### 01rCoils 02rDisInputs 03rHoldRegs 04rRegs 05wSingleCoil 06wSingleReg
+        VAR byte ResPDU{260};
+        VAR num ResPDULen;
+        ! ### 15wCoils 16wRegs
+        VAR byte ResQuantity;
+        !-------------RESPONSE DATA DECLARE----------------------------
+
+        !-------------PARSE REQUEST----------------------------
+        errCode:=0;
+        MbParseRequest RequestBytes,ReqMBAP,ReqFunctionCode,ReqStartAddress,ReqQuantity,ReqByteCount,ReqValues,errCode,errMsg;
+        IF errCode<>0x00 THEN
+            ResMBAP:=ReqMBAP;
+            ErrLog ID_ERR_MB_FUNCTION\W,ERRSTR_TASK,MB_FUNCTION_ERR_DESCRIPTION{errCode},errMsg,ERRSTR_UNUSED,ERRSTR_CONTEXT;
+            FCERR_Action ReqFunctionCode,errCode,ResPDU,ResPDULen;
+            MbGenerateResponse ResMBAP,ResPDU,ResPDULen,ResBytes,ResBytesLen;
+            RETURN ;
+        ENDIF
+        !-------------PARSE REQUEST----------------------------
+
+        !-------------CONSTRUCT RESPONSE-----------------------
+        ResMBAP:=ReqMBAP;
+        resFunctionCode:=ReqFunctionCode;
+        !-------------CONSTRUCT RESPONSE-----------------------
+
+        !-------------READ DATA--------------------------------------
+        TEST ReqFunctionCode
+        CASE MB_READ_COILS:
+            FC01_Action ReqStartAddress,ReqQuantity,resByteQuantity,ResPDU,ResPDULen,ResMBAP;
+        CASE MB_READ_HOLDING_REGISTERS:
+            FC03_Action ReqStartAddress,ReqQuantity,resByteQuantity,ResPDU,ResPDULen,ResMBAP;
+        CASE MB_WRITE_SINGLE_COIL:
+            FC05_Action ReqStartAddress,RequestBytes,ResAddress,ResPDU,ResPDULen,ResMBAP;
+        CASE MB_WRITE_SINGLE_REGISTER:
+            FC06_Action ReqStartAddress,RequestBytes,ResAddress,ResPDU,ResPDULen,ResMBAP;
+        CASE MB_WRITE_MULTIPLE_COILS:
+            FC0F_Action ReqStartAddress,RequestBytes,ReqQuantity,ReqByteCount,ReqValues,ResStartAddress,ResQuantity,ResPDU,ResPDULen,ResMBAP;
+        CASE MB_WRITE_MULTIPLE_REGISTERS:
+            FC10_Action ReqStartAddress,RequestBytes,ReqQuantity,ReqByteCount,ReqValues,ResStartAddress,ResQuantity,ResPDU,ResPDULen,ResMBAP;
+        ENDTEST
+
+        !-------------CONSTRUCT RESPONSE PDU-----------------------
+        MbGenerateResponse ResMBAP,ResPDU,ResPDULen,ResBytes,ResBytesLen;
+        !-------------CONSTRUCT RESPONSE PDU-----------------------
+
+    ENDPROC
+
+    !-------------REQUEST FRAME (READ COILS - FUNCTION CODE 0x01)----------------------------
+    PROC FC01_Action(num ReqStartAddress,num CoilsQuantity,INOUT num resByteQuantity,INOUT byte ResPDU{*},INOUT num ResPDULen,INOUT ModbusMBAP ResMBAP)
+        VAR num currentStart;
+        VAR num bitsInByte;
+        resByteQuantity:=(CoilsQuantity+7) DIV 8;
+        ResPDU{1}:=MB_READ_COILS;
+        ResPDU{2}:=resByteQuantity;
+
+        FOR i FROM 1 TO resByteQuantity DO
+            currentStart:=ReqStartAddress+(i-1)*8;
+            IF i<resByteQuantity THEN
+                bitsInByte:=8;
+            ELSE
+                bitsInByte:=CoilsQuantity-(resByteQuantity-1)*8;
+            ENDIF
+            ResPDU{i+2}:=ReadCoil(currentStart,bitsInByte);
+        ENDFOR
+        ResMBAP.length:=1+1+1+resByteQuantity;
+        ResPDULen:=1+1+resByteQuantity;
+    ENDPROC
+
+    FUNC byte ReadCoil(num StartAddress,num BitsInByte)
+        VAR byte result;
+        VAR num i;
+        VAR num bitValue;
+        result:=0;
+        FOR i FROM 1 TO BitsInByte DO
+            CoilHandle\read,StartAddress+i-1,bitValue;
+            IF bitValue<>0 THEN
+                BitSet result,i;
+            ENDIF
+        ENDFOR
+        RETURN result;
+    ENDFUNC
+
+    PROC CoilHandle(\switch Read|switch Write,num StartAddress,INOUT num Val)
+        IF StartAddress>=SYS_OUTPUT_COILS_MIN AND StartAddress<=SYS_OUTPUT_COILS_MAX THEN
+            ! 0-15 readonly
+            IF Present(Read) THEN
+                Val:=MbGetDO("mb_sdo"+ValToStr(StartAddress));
+            ELSE
+                RETURN ;
+            ENDIF
+        ELSEIF StartAddress>=SYS_INPUT_COILS_MIN AND StartAddress<=SYS_INPUT_COILS_MAX THEN
+            ! 16-31 read di and write by vdo
+            IF Present(Read) THEN
+                Val:=MbGetDI("mb_sdi"+ValToStr(StartAddress));
+            ELSE
+                MbSetDI "mb_vdo"+ValToStr(StartAddress),val;
+                RETURN ;
+            ENDIF
+
+        ELSEIF StartAddress>=USER_OUTPUT_COILS_MIN AND StartAddress<=USER_OUTPUT_COILS_MAX THEN
+            ! 32-95 readonly
+            IF Present(Read) THEN
+                Val:=MbGetDO("mb_do"+ValToStr(StartAddress));
+            ELSE
+                RETURN ;
+            ENDIF
+        ELSEIF StartAddress>=USER_INPUT_COILS_MIN AND StartAddress<=USER_INPUT_COILS_MAX THEN
+            ! 96-159 read di and write by vdo
+            IF Present(Read) THEN
+                Val:=MbGetDI("mb_di"+ValToStr(StartAddress));
+            ELSE
+                MbSetDI "mb_vdo"+ValToStr(StartAddress),Val;
+                RETURN ;
+            ENDIF
+        ELSE
+            RETURN ;
+        ENDIF
+
+
+    ENDPROC
+
+    PROC MbSetDI(string Name,num Value)
+        VAR signaldo do1;
+        AliasIO Name,do1;
+        setdo do1,Value;
+    ENDPROC
+
+    FUNC num MbGetDO(string Name)
+        VAR signaldo do1;
+        AliasIO Name,do1;
+        RETURN do1;
+    ENDFUNC
+
+    FUNC num MbGetDI(string Name)
+        VAR signaldI di1;
+        AliasIO Name,di1;
+        RETURN di1;
+    ENDFUNC
+
+    !-------------REQUEST FRAME (READ HOLDING REGISTERS - FUNCTION CODE 0x03)---------------
+    PROC FC03_Action(num ReqStartAddress,num RegistersQuantity,INOUT num ResByteQuantity,INOUT byte ResPDU{*},INOUT num ResPDULen,INOUT ModbusMBAP ResMBAP)
+        VAR num reg;
+        VAR byte h;
+        VAR byte l;
+        ResByteQuantity:=RegistersQuantity*2;
+        ResPDU{1}:=MB_READ_HOLDING_REGISTERS;
+        ResPDU{2}:=ResByteQuantity;
+        ReadReg ReqStartAddress,RegistersQuantity,ResPDU;
+        ResMBAP.length:=1+1+1+ResByteQuantity;
+        ResPDULen:=1+1+ResByteQuantity;
+    ENDPROC
+
+    PROC ReadReg(num ReqStartAddress,num RegistersQuantity,INOUT byte ResPDU{*})
+        VAR num reg;
+        IF RegistersQuantity=1 THEN
+            reg:=MbServerRegsUint16{ReqStartAddress+1};
+            UInt16ToBytes reg,ResPDU{3},ResPDU{4};
+        ELSE
+            Reading32Flag:=TRUE;
+            FOR i FROM 1 TO RegistersQuantity DO
+                reg:=MbServerRegsUint16{ReqStartAddress+i};
+                UInt16ToBytes reg,ResPDU{i*2+1},ResPDU{i*2+2};
+            ENDFOR
+            Reading32Flag:=FALSE;
+        ENDIF
+    ENDPROC
+
+    !-------------REQUEST FRAME (WRITE SINGLE COIL - FUNCTION CODE 0x05)--------------------
+    PROC FC05_Action(num ReqStartAddress,byte RequestBytes{*},INOUT num ResAddress,INOUT byte ResPDU{*},INOUT num ResPDULen,INOUT ModbusMBAP ResMBAP)
+        UpdateCoil ReqStartAddress,RequestBytes{11},RequestBytes{12};
+        ResPDU{1}:=MB_WRITE_SINGLE_COIL;
+        ResPDU{2}:=RequestBytes{9};
+        ResPDU{3}:=RequestBytes{10};
+        ResPDU{4}:=RequestBytes{11};
+        ResPDU{5}:=RequestBytes{12};
+        ResAddress:=ReqStartAddress;
+        ResMBAP.length:=1+1+4;
+        ResPDULen:=5;
+    ENDPROC
+
+    PROC UpdateCoil(num ReqStartAddress,byte H,byte L)
+        VAR num coilValue;
+        VAR num bit1:=1;
+        VAR num bit0:=0;
+        coilValue:=TwoBytesToUInt16(H,L);
+        IF coilValue=COIL_ON THEN
+            CoilHandle\write,ReqStartAddress,bit1;
+        ELSEIF coilValue=COIL_OFF THEN
+            CoilHandle\write,ReqStartAddress,bit0;
+        ENDIF
+    ENDPROC
+
+    !-------------REQUEST FRAME (WRITE SINGLE REGISTER - FUNCTION CODE 0x06)---------------
+    PROC FC06_Action(num ReqStartAddress,byte RequestBytes{*},INOUT num ResAddress,INOUT byte ResPDU{*},INOUT num ResPDULen,INOUT ModbusMBAP ResMBAP)
+        UpdateReg ReqStartAddress,RequestBytes{11},RequestBytes{12};
+        ResPDU{1}:=MB_WRITE_SINGLE_REGISTER;
+        ResPDU{2}:=RequestBytes{9};
+        ResPDU{3}:=RequestBytes{10};
+        ResPDU{4}:=RequestBytes{11};
+        ResPDU{5}:=RequestBytes{12};
+        ResAddress:=ReqStartAddress;
+        ResMBAP.length:=1+1+4;
+        ResPDULen:=1+2+2;
+    ENDPROC
+
+    PROC UpdateReg(num ReqStartAddress,byte High,byte Low)
+        MbServerRegsUint16{ReqStartAddress+1}:=TwoBytesToUInt16(High,Low);
+    ENDPROC
+
+    !-------------REQUEST FRAME (WRITE MULTIPLE COILS - FUNCTION CODE 0x0F)----------------
+    PROC FC0F_Action(num ReqStartAddress,byte RequestBytes{*},num ReqQuantity,num ReqByteCount,byte ReqValues{*},
+        INOUT num ResStartAddress,INOUT byte ResQuantity,INOUT byte ResPDU{*},INOUT num ResPDULen,INOUT ModbusMBAP ResMBAP)
+        UpdateMultiCoils ReqStartAddress,ReqQuantity,ReqValues;
+        ResStartAddress:=ReqStartAddress;
+        ResQuantity:=ReqQuantity;
+        ResPDU{1}:=MB_WRITE_MULTIPLE_COILS;
+        ResPDU{2}:=RequestBytes{9};
+        ResPDU{3}:=RequestBytes{10};
+        ResPDU{4}:=RequestBytes{11};
+        ResPDU{5}:=RequestBytes{12};
+        ResMBAP.length:=1+1+2+2;
+        ResPDULen:=1+2+2;
+    ENDPROC
+
+    PROC UpdateMultiCoils(num ReqStartAddress,num ReqQuantity,byte ReqValues{*})
+        VAR num byteIndex:=1;
+        VAR num bitIndex:=0;
+        VAR num currentAddress;
+        VAR num mask;
+        VAR num bitValue;
+        VAR num bit1:=1;
+        VAR num bit0:=0;
+
+        FOR i FROM 1 TO ReqQuantity DO
+            currentAddress:=ReqStartAddress+i-1;
+            mask:=Pow(2,bitIndex);
+            bitValue:=BitAnd(ReqValues{byteIndex},mask);
+            IF bitValue=mask THEN
+                CoilHandle\write,currentAddress,bit1;
+            ELSE
+                CoilHandle\write,currentAddress,bit0;
+            ENDIF
+            bitIndex:=bitIndex+1;
+            IF bitIndex>=8 THEN
+                byteIndex:=byteIndex+1;
+                bitIndex:=0;
+            ENDIF
+        ENDFOR
+    ENDPROC
+
+    !-------------REQUEST FRAME (WRITE MULTIPLE REGISTERS - FUNCTION CODE 0x10)------------
+    PROC FC10_Action(num ReqStartAddress,byte RequestBytes{*},num ReqQuantity,num ReqByteCount,
+        byte ReqValues{*},INOUT num ResStartAddress,INOUT byte ResQuantity,INOUT byte ResPDU{*},INOUT num ResPDULen,INOUT ModbusMBAP ResMBAP)
+        UpdateMultiRegs ReqStartAddress,ReqByteCount,ReqValues;
+        ResStartAddress:=ReqStartAddress;
+        ResQuantity:=ReqQuantity;
+        ResMBAP.length:=1+1+2+2;
+        ResPDU{1}:=MB_WRITE_MULTIPLE_REGISTERS;
+        ResPDU{2}:=RequestBytes{9};
+        ResPDU{3}:=RequestBytes{10};
+        ResPDU{4}:=RequestBytes{11};
+        ResPDU{5}:=RequestBytes{12};
+        ResPDULen:=1+2+2;
+    ENDPROC
+
+    PROC UpdateMultiRegs(num ReqStartAddress,num ReqByteCount,byte ReqValues{*})
+        VAR num ReqQuantity;
+        ReqQuantity:=ReqByteCount/2;
+        IF ReqQuantity=1 THEN
+            UpdateReg ReqStartAddress,ReqValues{1},ReqValues{2};
+        ELSE
+            Writing32Flag:=TRUE;
+            FOR i FROM 1 TO ReqQuantity DO
+                UpdateReg ReqStartAddress+i-1,ReqValues{i*2-1},ReqValues{i*2};
+            ENDFOR
+            Writing32Flag:=FALSE;
+        ENDIF
+    ENDPROC
+
+    PROC FCErr_Action(num ReqFunctionCode,num err,INOUT byte ResPDU{*},INOUT num ResPDULen)
+        VAR byte b;
+        b:=ReqFunctionCode;
+        BitSet b,8;
+        ResPDU{1}:=b;
+        ResPDU{2}:=err;
+        ResPDULen:=2;
+    ENDPROC
+
+    PROC MbGenerateResponse(ModbusMBAP MBAP,byte PDU{*},num PUDLength,INOUT byte OutBytes{*},INOUT num OutLength)
+        VAR byte temp{MBAP_FRAME_LENGTH};
+        MBAPToBytes MBAP,temp;
+        ArrayCombine temp,MBAP_FRAME_LENGTH,PDU,PUDLength,OutBytes,OutLength;
+    ENDPROC
+
+    FUNC bool MbCheckRequestFormat(ModbusMBAP MBAP,num ReqLen)
+        VAR num dataLength;
+        IF MBAP.ProtocolIdentifier<>0x0000 THEN
+            ErrLog ID_ERR_MB_FORMAT,ERRSTR_TASK,"Protocol identifier error","Protocol identifier should be 0x0000",ERRSTR_UNUSED,ERRSTR_CONTEXT;
+            RETURN FALSE;
+        ENDIF
+        IF (MBAP.Length+6)<>ReqLen THEN
+            ErrLog ID_ERR_MB_FORMAT,ERRSTR_TASK,"MBAP length error","MBAP length field doesn't match received data length",ERRSTR_UNUSED,ERRSTR_CONTEXT;
+            RETURN FALSE;
+        ENDIF
+        IF MBAP.UnitIdentifier=0 OR MBAP.UnitIdentifier>247 THEN
+            ErrLog ID_ERR_MB_FORMAT,ERRSTR_TASK,"Invalid unit identifier","Valid unit identifier range is 1-247, Server UID is 1",ERRSTR_UNUSED,ERRSTR_CONTEXT;
+            RETURN FALSE;
+        ENDIF
+        RETURN TRUE;
+    ENDFUNC
+
+
+
+
+ENDMODULE

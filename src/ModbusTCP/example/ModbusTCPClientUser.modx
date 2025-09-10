@@ -1,0 +1,103 @@
+MODULE ModbusTCPClientUser
+    !***********************************************************
+    !Example code to use the MobusTCP Client to read and write coils and registers.
+    !***********************************************************
+	LOCAL PERS bool coils{10}:=[FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE];
+	LOCAL PERS num holdingRegisters{10}:=[9,8,7,6,5,4,3,2,1,0];
+	LOCAL PERS num inputRegisters{10}:=[1,2,3,4,5,6,7,8,9,10];
+	! modbus device default ID 设置被读写设备的Modbus ID, 默认为 1
+	LOCAL CONST byte ID:=1; 
+	LOCAL var ModbusSocket mbSocket;
+	! Modbus server device IP address 设置被读写设备的IP地址
+	LOCAL var ModbusServerConfig msConf:=["192.168.125.188",502,0.1,5,5,5];
+	
+	LOCAL PROC ModbusClientExample()
+		
+		! FC01_ReadCoils                 功能码0x01, 读取多个保持型线圈
+		! FC02_ReadDiscreteInputs        功能码0x02, 读取多个输入型线圈    
+		! FC03_ReadHoldingRegisters      功能码0x03, 读取多个保持行寄存器
+		! FC04_ReadInputRegisters        功能码0x04, 读取多个输入型寄存器
+		
+		! FC05_WriteSingleCoil           功能码0x05, 写入单个线圈
+		! FC06_WriteSingleRegister       功能码0x06, 写入单个寄存器
+		! FC0F_WriteMultipleCoils        功能码0x0F, 写入多个线圈
+		! FC10_WriteMultipleRegisters    功能码0x10, 写入多个寄存器 
+        
+        VAR num uint16_regs{2};
+        VAR num int16_val;
+        VAR num float32_val;
+        VAR num result1;
+        VAR num result2;
+        VAR dnum int32_val;
+        VAR dnum uint32_val;
+        VAR dnum result3;
+        VAR dnum result4;
+		
+		! 从地址0开始读取连续10个线圈数值，功能码0x01
+		FC01_ReadCoils 0,10,coils,ID,mbSocket,msConf;
+		TPWrite "Coils: "+ValToStr(coils);
+		
+		FOR i FROM 0 TO 9 DO
+			! 向地址i的线圈写入True， 功能码0x05
+			FC05_WriteSingleCoil i,COIL_ON,ID,mbSocket,msConf;
+		ENDFOR
+ 
+		! 从地址0开始读取连续10个输入型线圈，功能码0x02
+		FC02_ReadDiscreteInputs 0,10,coils,ID,mbSocket,msConf;
+		TPWrite "ReadDiscreteInputs 0~9: "+ValToStr(coils);
+		
+		! 从地址0开始写入连续10个线圈，功能码0x0F
+		FC0F_WriteMultipleCoils 0,10,[FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE],ID,mbSocket,msConf;
+		
+		! 从地址0开始读取连续10个寄存器(UINT16)，功能码0x03
+		FC03_ReadHoldingRegisters 0,10,holdingRegisters,ID,mbSocket,msConf;
+		TPWrite "ReadHoldingRegisters 0~9: "+ValToStr(holdingRegisters);
+
+		FOR i FROM 0 TO 9 DO
+			! 向地址i的寄存器写入值i(UINT16)，功能码0x06
+			FC06_WriteSingleRegister i,i,ID,mbSocket,msConf;
+		ENDFOR
+
+        ! 从地址0开始读取连续10个输入型寄存器(UINT16)，功能码0x04
+		FC04_ReadInputRegisters 0,10,inputRegisters,ID,mbSocket,msConf;
+		TPWrite "ReadInputRegisters 0~9: "+ValToStr(inputRegisters);
+
+		! 向地址0开始写入连续10个寄存器(UINT16)，功能码0x10
+		FC10_WriteMultipleRegisters 0,10,[9,8,7,6,5,4,3,2,1,0],ID,mbSocket,msConf;
+
+		! 向地址0的寄存器写入值(INT16)，功能码0x06
+        int16_val:=-123;
+		FC06_WriteSingleRegister 0,Int16ToUint16(int16_val),ID,mbSocket,msConf;
+
+        ! 从地址0读取1个寄存器, 转成(INT16)，功能码0x03
+		FC03_ReadHoldingRegisters 0,1,uint16_regs,ID,mbSocket,msConf;
+        result1:=Uint16ToInt16(uint16_regs{1});
+
+		! 向地址0开始的2个寄存器写入(FLOAT32)，功能码0x10
+        float32_val:=-3.14159;
+        Float32ToTwoUint16 float32_val,uint16_regs{1},uint16_regs{2};
+		FC10_WriteMultipleRegisters 0,2,uint16_regs,ID,mbSocket,msConf;
+
+		! 从地址0读取2个寄存器, 转成(FLOAT32)，功能码0x03
+		FC03_ReadHoldingRegisters 0,2,uint16_regs,ID,mbSocket,msConf;
+        result2:=TwoUint16ToFloat32(uint16_regs{1},uint16_regs{2});
+
+		! 向地址0开始的2个寄存器写入(INT32)，功能码0x10
+        int32_val:=-1234567;
+        I32ToTwoUint16 int32_val,DINT,uint16_regs{1},uint16_regs{2};
+		FC10_WriteMultipleRegisters 0,2,uint16_regs,ID,mbSocket,msConf;
+
+		! 从地址0读取2个寄存器, 转成(INT32)，功能码0x03
+		FC03_ReadHoldingRegisters 0,2,uint16_regs,ID,mbSocket,msConf;
+        result3:=TwoUint16ToI32(uint16_regs{1},uint16_regs{2},DINT);
+
+		! 向地址0开始的2个寄存器写入(UINT32)，功能码0x10
+        uint32_val:=7654321;
+        I32ToTwoUint16 uint32_val,UDINT,uint16_regs{1},uint16_regs{2};
+		FC10_WriteMultipleRegisters 0,2,uint16_regs,ID,mbSocket,msConf;
+
+        ! 从地址0读取2个寄存器, 转成(UINT32)，功能码0x03
+		FC03_ReadHoldingRegisters 0,2,uint16_regs,ID,mbSocket,msConf;
+        result4:=TwoUint16ToI32(uint16_regs{1},uint16_regs{2},UDINT);
+	ENDPROC
+ENDMODULE

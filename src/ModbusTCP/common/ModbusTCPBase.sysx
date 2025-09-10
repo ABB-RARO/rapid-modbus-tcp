@@ -1,0 +1,556 @@
+MODULE ModbusTCPBase(SYSMODULE,VIEWONLY)
+    !***********************************************************
+    !
+    ! Copyright (c) 2025 ABB Robotics. All rights reserved.
+    ! Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+    !
+    !***********************************************************
+    !***********************************************************
+    ! This module defines data structure, utility and socket communication of Modbus TCP.
+    ! Author: Kun Chang
+    ! Last Update: [2025-08-01]
+
+    !------------------------- Data Structure ----------------------------
+    ALIAS socketdev ModbusSocket;
+    ! Modbus server configuration structure
+    RECORD ModbusServerConfig
+        string Ip;
+        num Port;                ! default port 502
+        num ReceiveTimeOut;      ! 0.01-0.1 second
+        num ConnectTimeOut;      ! 1-5 second
+        num ConnectRetryCount;   ! 1-5
+        num SendRetryCount;      ! 1-5
+    ENDRECORD
+
+    ! Modbus MBAP (Modbus Application Protocol) header structure
+    RECORD ModbusMBAP
+        num TransactionIdentifier;
+        num ProtocolIdentifier;  ! always 0
+        num Length;
+        byte UnitIdentifier;
+    ENDRECORD
+
+    ! MBAP header length in bytes
+    CONST num MBAP_FRAME_LENGTH:=7;
+
+    ! Addin version number
+    CONST string MB_VERSION:="1.0.0";
+
+    !---------------------- Modbus Function Codes -------------------------
+    CONST num MB_READ_COILS:=0x01;
+    CONST num MB_READ_DISCRETE_INPUTS:=0x02;
+    CONST num MB_READ_HOLDING_REGISTERS:=0x03;
+    CONST num MB_READ_INPUT_REGISTERS:=0x04;
+    CONST num MB_WRITE_SINGLE_COIL:=0x05;
+    CONST num MB_WRITE_SINGLE_REGISTER:=0x06;
+    CONST num MB_WRITE_MULTIPLE_COILS:=0x0F;
+    CONST num MB_WRITE_MULTIPLE_REGISTERS:=0x10;
+
+    !---------------------- Coil Values -----------------------------------
+    CONST num COIL_ON:=0xFF00;
+    CONST num COIL_OFF:=0x0000;
+
+    !---------------------- Exception Codes -------------------------------
+    CONST num EXCEPTION_CODE_OFFSET:=0x80;
+    ! Exception code offset
+
+    CONST num MB_ILLEGAL_FUNCTION:=0x01;
+    CONST num MB_ILLEGAL_DATA_ADDRESS:=0x02;
+    CONST num MB_ILLEGAL_DATA_VALUE:=0x03;
+    CONST num MB_SERVER_FAILURE:=0x04;
+    CONST num MB_ACKNOWLEDGE:=0x05;
+    CONST num MB_SERVER_BUSY:=0x06;
+    CONST num MB_GATEWAY_PATH_PROBLEM:=0x0A;
+    CONST num MB_GATEWAY_TARGET_FAILURE:=0x0B;
+
+
+    ! Exception code messages (index = exception code)
+    CONST string MB_FUNCTION_ERR_DESCRIPTION{11}:=[
+                                    "Illegal Function",
+                                    "Illegal Data Address",
+                                    "Illegal Data Value",
+                                    "Server Failure",
+                                    "Acknowledge",
+                                    "Server Busy",
+                                    "",
+                                    "",
+                                    "",
+                                    "Gateway Path Problem",
+                                    "Gateway Target Device Failed to Respond"
+                                    ];
+
+    !---------------------- Modbus Error and Event Log IDs ----------------
+    ! 900x IDs are used when Modbus TCP addin for Omnicore installed
+    !CONST num ID_INF_MB_COMM_ESTABLISHED:=9000;
+    !CONST num ID_ERR_MB_TIMEOUT:=9001;
+    !CONST num ID_ERR_MB_FORMAT:=9002;
+    !CONST num ID_ERR_MB_FUNCTION:=9003;
+    CONST num ID_INF_MB_COMM_ESTABLISHED:=4800;
+    CONST num ID_ERR_MB_TIMEOUT:=4801;
+    CONST num ID_ERR_MB_FORMAT:=4802;
+    CONST num ID_ERR_MB_FUNCTION:=4803;
+
+ 
+    var errnum ERR_MB_TIMEOUT:=-1;
+    var errnum ERR_MB_FORMAT:=-1;
+    var errnum ERR_MB_FUNCTION:=-1;
+    var bool MbErrBooked;
+    !---------------------- Debug and Log Settings ------------------------
+    PERS bool ModbusSocketDebug;
+    ! Enable/disable Modbus socket debug output TPWrite and Log file
+
+    !---------------------- Synchronization Flag --------------------------
+    PERS bool ModbusSync;
+    ! Synchronization flag for Modbus TCP server communication
+
+    !---------------------- Utility Base functions -----------------------
+    ! default log file name for Modbus TCP Client
+    TASK PERS string ModbusLogFile:="ModbusClient.txt";
+    
+    ! Function: GenerateTransIndent
+    ! Generates a unique transaction identifier for Modbus communication.
+    ! Returns: num - A unique transaction identifier.
+    TASK PERS num CurrentTransIndent:=0;
+
+    FUNC num GenerateTransIndent()
+        Incr CurrentTransIndent;
+        IF CurrentTransIndent>65535 THEN
+            CurrentTransIndent:=0;
+        ENDIF
+        RETURN CurrentTransIndent;
+    ENDFUNC
+
+    ! Function: GenerateMBAP
+    ! Creates a Modbus Application Protocol (MBAP) header.
+    ! Parameters:
+    !   Length (num): Length of the PDU.
+    !   UID (byte): Unit identifier.
+    ! Returns: ModbusMBAP - The generated MBAP structure.
+    FUNC ModbusMBAP GenerateMBAP(num Length,byte UID)
+        VAR ModbusMBAP mbap;
+        mbap.TransactionIdentifier:=GenerateTransIndent();
+        mbap.ProtocolIdentifier:=0;
+        mbap.Length:=Length;
+        mbap.UnitIdentifier:=UID;
+        RETURN mbap;
+    ENDFUNC
+
+    ! Function: BytesToMBAP
+    ! Converts a byte array into a ModbusMBAP structure.
+    ! Parameters:
+    !   InBytes (byte array): The byte array to convert.
+    ! Returns: ModbusMBAP - The converted MBAP structure.
+    FUNC ModbusMBAP BytesToMBAP(byte InBytes{*})
+        VAR ModbusMBAP mbap;
+        IF dim(InBytes,1)>=MBAP_FRAME_LENGTH THEN
+            mbap.TransactionIdentifier:=InBytes{1}*256+InBytes{2};
+            mbap.ProtocolIdentifier:=InBytes{3}*256+InBytes{4};
+            mbap.Length:=InBytes{5}*256+InBytes{6};
+            mbap.UnitIdentifier:=InBytes{7};
+            RETURN mbap;
+        ELSE
+            ErrWrite "Modbus Err","The length of the array is less than 7 bits";
+        ENDIF
+    ENDFUNC
+
+    ! Procedure: MBAPToBytes
+    ! Converts a ModbusMBAP structure into a byte array.
+    ! Parameters:
+    !   MBAP (ModbusMBAP): The MBAP structure to convert.
+    !   OutBytes (byte array, INOUT): The output byte array.
+    PROC MBAPToBytes(ModbusMBAP MBAP,INOUT byte OutBytes{*})
+        IF dim(OutBytes,1)>=MBAP_FRAME_LENGTH THEN
+            UInt16ToBytes MBAP.TransactionIdentifier,OutBytes{1},OutBytes{2};
+            UInt16ToBytes MBAP.ProtocolIdentifier,OutBytes{3},OutBytes{4};
+            UInt16ToBytes MBAP.Length,OutBytes{5},OutBytes{6};
+            OutBytes{7}:=MBAP.UnitIdentifier;
+        ELSE
+            ErrWrite "Modbus Err","The length of the array is less than 7 bits";
+        ENDIF
+    ENDPROC
+
+    ! Procedure: UInt16ToBytes
+    ! Converts a 16-bit unsigned integer to two bytes (high and low).
+    ! Parameters:
+    !   InData (num): The input number.
+    !   ByteH (byte, INOUT): High byte output.
+    !   ByteL (byte, INOUT): Low byte output.
+    PROC UInt16ToBytes(num InData,inout byte ByteH,inout byte ByteL)
+        VAR rawbytes raw_data;
+        VAR byte Byte_H;
+        VAR byte Byte_L;
+        PackRawBytes InData,raw_data\Network,1\IntX:=UINT;
+        UnpackRawBytes raw_data\Network,1,Byte_H\Hex1;
+        UnpackRawBytes raw_data\Network,2,Byte_L\Hex1;
+        ByteL:=Byte_L;
+        ByteH:=Byte_H;
+    ENDPROC
+
+    ! Function: TwoBytesToUInt16
+    ! Converts two bytes to a 16-bit unsigned integer.
+    ! Parameters:
+    !   H (byte): High byte.
+    !   L (byte): Low byte.
+    ! Returns: num - The resulting unsigned integer.
+    FUNC num TwoBytesToUInt16(byte H,Byte L)
+        RETURN H*256+L;
+    ENDFUNC
+
+    ! Function: FourBytesToFloat32
+    ! Converts four bytes to a 32-bit float.
+    ! Parameters:
+    !   b11, b12, b21, b22 (byte): Input bytes.
+    ! Returns: num - The resulting float value.
+    FUNC num FourBytesToFloat32(byte B11,byte B12,byte B21,byte B22)
+        VAR rawbytes raw_data;
+        VAR num result;
+        PackRawBytes B11,raw_data\Network,1\IntX:=USINT;
+        PackRawBytes B12,raw_data\Network,2\IntX:=USINT;
+        PackRawBytes B21,raw_data\Network,3\IntX:=USINT;
+        PackRawBytes B22,raw_data\Network,4\IntX:=USINT;
+        UnpackRawBytes raw_data\Network,1,result\Float4;
+        RETURN result;
+    ENDFUNC
+
+    ! Function: Uint16ToInt16
+    ! Extract 16-bit Int from the 16-bit UINT16 register.
+    ! Parameters:
+    !   Reg (num): UINT16 register.
+    ! Return: (num) 16-bit Int value
+    FUNC num Uint16ToInt16(num Reg)
+        VAR rawbytes raw_data;
+        VAR num value;
+        PackRawBytes Reg,raw_data\Network,(RawBytesLen(raw_data)+1)\IntX:=UINT;
+        UnpackRawBytes raw_data\Network,1,value\IntX:=INT;
+        RETURN value;
+    ENDFUNC
+     
+    ! Function: Int16ToUint16
+    ! Extract 16-bit Int from the 16-bit UINT16 register.
+    ! Parameters:
+    !   I16 (num): 16-bit Int value.
+    ! Return: (num) UINT16 register
+    FUNC num Int16ToUint16(num I16)
+        VAR rawbytes raw_data;
+        VAR num reg;
+        PackRawBytes I16,raw_data\Network,(RawBytesLen(raw_data)+1)\IntX:=INT;
+        UnpackRawBytes raw_data\Network,1,reg\IntX:=UINT;
+        RETURN reg;
+    ENDFUNC
+   
+    ! Function: TwoUint16ToI32
+    ! Extract 32-bit Int/Uint from two 16-bit UINT16 registers.
+    ! Parameters:
+    !   Reg1 (num): First register.
+    !   Reg2 (num): Second register.
+    !   Itype (inttype): DINT/UDINT
+    ! Return: (dnum) 32-bit Int/Uint value
+    FUNC dnum TwoUint16ToI32(num Reg1, num Reg2, inttypes Itype)
+        VAR rawbytes raw_data;
+        VAR dnum value;
+        PackRawBytes Reg1,raw_data\Network,(RawBytesLen(raw_data)+1)\IntX:=UINT;
+        PackRawBytes Reg2,raw_data\Network,(RawBytesLen(raw_data)+1)\IntX:=UINT;
+        UnpackRawBytes raw_data\Network,1,value\IntX:=Itype;
+        RETURN value;
+    ENDFUNC
+
+    ! Procedure: I32ToTwoUint16
+    ! Pack a 32-bit Int/Uint into two 16-bit UINT16 registers.
+    ! Parameters:
+    !   I32 (dnum): 32-bit Int/Uint value
+    !   Itype (inttype): DINT/UDINT
+    !   Reg1 (num, INOUT): First register output.
+    !   Reg2 (num, INOUT): Second register output.
+    PROC I32ToTwoUint16(dnum I32, inttypes Itype, inout num Reg1, inout num Reg2)
+        VAR rawbytes raw_data;
+        VAR num reg_1;
+        VAR num reg_2;
+        PackRawBytes I32,raw_data\Network,(RawBytesLen(raw_data)+1)\IntX:=Itype;
+        UnpackRawBytes raw_data\Network,1,reg_1\IntX:=UINT;
+        UnpackRawBytes raw_data\Network,3,reg_2\IntX:=UINT;
+        Reg1:=reg_1;
+        Reg2:=reg_2;
+    ENDPROC
+
+    ! Function: TwoUint16ToFloat32
+    ! Extract 32-bit float from two 16-bit UINT16 registers.
+    ! Parameters:
+    !   Reg1 (num): First register.
+    !   Reg2 (num): Second register.
+    ! Return: (num) Float32 value
+    FUNC num TwoUint16ToFloat32(num Reg1, num Reg2)
+        VAR rawbytes raw_data;
+        VAR num value;
+        PackRawBytes Reg1,raw_data\Network,(RawBytesLen(raw_data)+1)\IntX:=UINT;
+        PackRawBytes Reg2,raw_data\Network,(RawBytesLen(raw_data)+1)\IntX:=UINT;
+        UnpackRawBytes raw_data\Network,1,value\FLOAT4;
+        RETURN value;
+    ENDFUNC
+    
+    ! Procedure: Float32ToTwoUint16
+    ! Pack a 32-bit float into two 16-bit UINT16 registers.
+    ! Parameters:
+    !   F32 (num): The float value.
+    !   Reg1 (num, INOUT): First register output.
+    !   Reg2 (num, INOUT): Second register output.
+    PROC Float32ToTwoUint16(num F32, inout num Reg1, inout num Reg2)
+        VAR rawbytes raw_data;
+        VAR num reg_1;
+        VAR num reg_2;
+        PackRawBytes F32,raw_data\Network,(RawBytesLen(raw_data)+1)\FLOAT4;
+        UnpackRawBytes raw_data\Network,1,reg_1\IntX:=UINT;
+        UnpackRawBytes raw_data\Network,3,reg_2\IntX:=UINT;
+        Reg1:=reg_1;
+        Reg2:=reg_2;
+    ENDPROC
+
+    ! Procedure: ArrayCombine
+    ! Combines two byte arrays into one output array.
+    ! Parameters:
+    !   Array1 (byte array): First input array.
+    !   Len1 (num): Length of first array to copy.
+    !   Array2 (byte array): Second input array.
+    !   Len2 (num): Length of second array to copy.
+    !   ArrayOut (byte array, INOUT): Output array.
+    !   Length (num, INOUT): Output length.
+    PROC ArrayCombine(byte Array1{*},num Len1,byte Array2{*},num Len2,INOUT byte ArrayOut{*},inout num Length)
+        VAR num outLen;
+        VAR num copyLen1;
+        VAR num copyLen2;
+        outLen:=dim(ArrayOut,1);
+
+        ! Limit copy length to available output buffer
+        IF Len1+Len2>outLen THEN
+            IF Len1>=outLen THEN
+                copyLen1:=outLen;
+                copyLen2:=0;
+            ELSE
+                copyLen1:=Len1;
+                copyLen2:=outLen-Len1;
+                IF copyLen2>Len2 THEN
+                    copyLen2:=Len2;
+                ENDIF
+            ENDIF
+            Length:=outLen;
+        ELSE
+            copyLen1:=Len1;
+            copyLen2:=Len2;
+            Length:=Len1+Len2;
+        ENDIF
+
+        ! Copy array1 if copyLen1 > 0 and array1 has enough elements
+        IF copyLen1>0 AND dim(Array1,1)>=copyLen1 THEN
+            FOR index FROM 1 TO copyLen1 DO
+                ArrayOut{index}:=Array1{index};
+            ENDFOR
+        ENDIF
+
+        ! Copy array2 if copyLen2 > 0 and array2 has enough elements
+        IF copyLen2>0 AND dim(Array2,1)>=copyLen2 THEN
+            FOR index FROM 1 TO copyLen2 DO
+                ArrayOut{index+copyLen1}:=Array2{index};
+            ENDFOR
+        ENDIF
+    ENDPROC
+
+    ! Function: BytesToStr
+    ! Converts a byte array to a string of hexadecimal values.
+    ! Parameters:
+    !   InData (byte array): Input byte array.
+    !   Length (num, optional): Number of bytes to convert.
+    ! Returns: string - The resulting string.
+	!   string length <= 60
+    FUNC string BytesToStr(byte InData{*}, num Length)
+        VAR string sData;
+        VAR num nLength;
+
+        nLength:=Length;
+        IF Length>Dim(InData,1) THEN
+            nLength:=Dim(InData,1);
+        ENDIF
+
+        FOR index FROM 1 TO nLength DO
+            sData:=sData+ByteToStr(InData{index}\Hex)+" ";
+            IF index = 19 AND nLength > 20 THEN
+                RETURN sData+"..";
+            ENDIF
+        ENDFOR
+
+        RETURN sData;
+    ENDFUNC
+
+    ! Procedure: PrintBytes
+    ! Prints a byte array as a string with a title and timestamp.
+    ! Parameters:
+    !   Title (string): The title to print.
+    !   InData (byte array): The byte array to print.
+    !   Length (num, optional): Number of bytes to print.
+    PROC PrintBytes(string Title,byte InData{*}, num Length)
+        TPWrite CTime() + " "+Title;
+        TPWrite BytesToStr(InData, Length);
+    ENDPROC
+
+    ! Procedure: PrintMBAP
+    ! Prints the fields of a ModbusMBAP structure.
+    ! Parameters:
+    !   MBAP (ModbusMBAP): The MBAP structure to print.
+    PROC PrintMBAP(ModbusMBAP MBAP)
+
+        TPWrite "TransactionIdentifier :"\Num:=MBAP.TransactionIdentifier;
+        TPWrite "ProtocolIdentifier    :"\Num:=MBAP.ProtocolIdentifier;
+        TPWrite "Length                :"\Num:=MBAP.Length;
+        TPWrite "UnitIdentifier        :"\Num:=MBAP.UnitIdentifier;
+
+    ENDPROC
+
+    ! Procedure: MbWriteLog
+    ! Writes a log entry to a specified file.
+    ! Parameters:
+    !   Filename (string): Name of the log file.
+    !   Title (string): Title of the log entry.
+    !   Data (string): Data to log.
+    PROC MbWriteLog(string Filename,string Title,string Data)
+        VAR iodev logfile;
+        Open "HOME:"\File:=Filename,logfile\Append;
+
+        Write logfile,CDate()+","+CTime()+" "\NoNewLine;
+        Write logfile,Title+","\NoNewLine;
+        Write logfile,Data;
+        Close logfile;
+
+    ENDPROC
+
+    !---------------------- Socket Base functions ------------------------
+    ! Function: MbIsExceptionResponse
+    ! Checks if the given function code represents an exception response.
+    ! Parameters:
+    !   FunctionCode (byte): The Modbus function code.
+    !   ErrCode (byte): The error code to check.
+    !   ErrorMsg (string, optional, INOUT): Outputs the corresponding error message.
+    ! Returns: bool - True if the function code is an exception response, otherwise False.
+    FUNC bool MbIsExceptionResponse(byte FunctionCode,byte ErrCode,inout string ErrorMsg)
+
+        IF FunctionCode>=EXCEPTION_CODE_OFFSET THEN
+            IF ErrCode>=0x01 AND ErrCode<=0x0B THEN
+                ErrorMsg:=MB_FUNCTION_ERR_DESCRIPTION{ErrCode};
+            ELSE
+                ErrorMsg:="Unknown Exception Code";
+            ENDIF
+            RETURN TRUE;
+        ENDIF
+        
+        RETURN FALSE;
+    ENDFUNC
+
+    PROC MbBookErrNo()
+        BookErrNo ERR_MB_TIMEOUT;
+		BookErrNo ERR_MB_FORMAT;
+        BookErrNo ERR_MB_FUNCTION;
+    ENDPROC
+    
+    ! Procedure: MbReceiveBytes
+    ! Receives bytes from a Modbus socket into a byte array.
+    ! Parameters:
+    !   MbSocket (VAR ModbusSocket): The Modbus socket to receive from.
+    !   ByteArray (INOUT byte array): Buffer to store received data.
+    !   ReadNoOfBytes (num): Number of bytes to read. MBAP length 7, PDU maximum length 300
+    !   NoRecBytes (num, VAR): Number of bytes actually received.
+    !   ReceiveTimeOut (num): Timeout value for receiving.
+    !   TimeOut (bool, VAR): Indicates if a timeout occurred.
+    ! Returns: None
+    PROC MbReceiveBytes(VAR ModbusSocket MbSocket,inout byte ByteArray{*},num ReadNoOfBytes,var num NoRecBytes,num ReceiveTimeOut,var bool TimeOut)
+
+        IF 0<ReadNoOfBytes AND ReadNoOfBytes<=300 THEN
+            WaitUntil SocketPeek(MbSocket)>=ReadNoOfBytes\MaxTime:=ReceiveTimeOut\TimeFlag:=TimeOut;
+            IF TimeOut=FALSE THEN
+                SocketReceive MbSocket\Data:=ByteArray\ReadNoOfBytes:=ReadNoOfBytes\NoRecBytes:=NoRecBytes\Time:=ReceiveTimeOut;
+                IF ReadNoOfBytes<>NoRecBytes THEN
+                    ErrRaise "ERR_MB_FORMAT",ID_ERR_MB_FORMAT,ERRSTR_TASK,"The length of the received data is less.","Expect:"+valtostr(ReadNoOfBytes)+" "+" Received:"+valtostr(NoRecBytes),ERRSTR_UNUSED,ERRSTR_CONTEXT;
+                ENDIF
+            ENDIF
+        ELSE
+            ErrRaise "ERR_MB_FORMAT",ID_ERR_MB_FORMAT,ERRSTR_TASK,"MbReceiveBytes invalid argument","Expect[5,300], actual:"+valtostr(ReadNoOfBytes),ERRSTR_UNUSED,ERRSTR_CONTEXT;
+        ENDIF
+
+    ERROR
+        !ERR_SOCK_CLOSED The socket is closed. Broken connection.
+        !ERR_SOCK_NET_UNREACH Network is unreachable or connection is lost after a socket is opened.
+        !ERR_SOCK_NOT_CONN The socket is not connected
+        !ERR_SOCK_TIMEOUT No data was received within the time out time.
+        IF ERRNO=ERR_SOCK_TIMEOUT THEN
+            TimeOut:=TRUE;
+            TRYNEXT;
+        ELSE
+            RAISE ;
+        ENDIF
+
+    ENDPROC
+
+    ! Procedure: MbSendBytes
+    ! Sends a byte array over a Modbus socket.
+    ! Parameters:
+    !   MbSocket (VAR ModbusSocket): The Modbus socket to use for sending.
+    !   Conf (ModbusServerConfig): Modbus configuration.
+    !   ByteArray (byte array): Data to send.
+    !   NoOfBytes (num, optional): Number of bytes to send.
+    ! Returns: None
+    PROC MbSendBytes(VAR ModbusSocket MbSocket,ModbusServerConfig Conf,byte ByteArray{*},num NoOfBytes)
+
+        SocketSend MbSocket\Data:=ByteArray\NoOfBytes:=NoOfBytes;
+        IF ModbusSocketDebug THEN
+            MbWriteLog ModbusLogFile,"Send " + Conf.Ip,BytesToStr(ByteArray,NoOfBytes);
+        ENDIF
+
+    ERROR
+        RAISE ;
+    ENDPROC
+
+    ! Procedure: MbSocketFlush
+    ! Flush the buffer of a Modbus socket.
+    ! Parameters:
+    !   MbSocket (VAR ModbusSocket): The Modbus socket.
+    ! Returns: None
+    PROC MbSocketFlush(VAR ModbusSocket MbSocket)
+        VAR rawbytes bytes;
+        VAR num len;
+
+        len:=SocketPeek(MbSocket);
+        IF len>1024 THEN
+           len:=1024;
+        ENDIF
+        IF len > 0 THEN
+           SocketReceive MbSocket\RawData:=bytes\ReadNoOfBytes:=len\Time:=0.05;
+        ENDIF
+    ENDPROC
+    
+    ! Procedure: MbPrintSocketState
+    ! Prints the current state of a Modbus socket client.
+    ! Parameters:
+    !   MbSocket (VAR ModbusSocket): The Modbus socket client.
+    !   Conf (ModbusServerConfig): Modbus configuration settings.
+    ! Returns: None
+    PROC MbPrintSocketState(VAR ModbusSocket MbSocket,ModbusServerConfig Conf)
+        VAR socketstatus status;
+
+        TPWrite "[Modbus    IP]:"+Conf.ip;
+        TPWrite "[Modbus  Port]:"\num:=Conf.Port;
+        status:=SocketGetStatus(MbSocket);
+        IF status=SOCKET_CREATED THEN
+            TPWrite "[Modbus State]: SocketCreate";
+            TPWrite "[Modbus Buffer]:"\num:=SocketPeek(MbSocket);
+        ELSEIF status=SOCKET_CLOSED THEN
+            TPWrite "[Modbus State]: SocketClose";
+        ELSEIF status=SOCKET_BOUND THEN
+            TPWrite "[Modbus State]: SocketBind";
+        ELSEIF status=SOCKET_LISTENING THEN
+            TPWrite "[Modbus State]: SocketListen or SocketAccept";
+        ELSEIF status=SOCKET_CONNECTED THEN
+            TPWrite "[Modbus State]: SocketConnect, SocketReceive or SocketSend";
+            TPWrite "[Modbus Buffer]:"\num:=SocketPeek(MbSocket);
+        ELSE
+            TPWrite "[Modbus State]: Unknown";
+        ENDIF
+
+    ENDPROC
+
+ENDMODULE

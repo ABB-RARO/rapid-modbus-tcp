@@ -1,0 +1,693 @@
+MODULE ModbusTCPClient(SYSMODULE,VIEWONLY)
+    !***********************************************************
+    !
+    ! Copyright (c) 2025 ABB Robotics. All rights reserved.
+    ! Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+    !
+    !***********************************************************
+    !***********************************************************
+    ! Module: ModbusTCPClient
+    ! Description: Implements Modbus TCP Client functionality.
+    !              Provides procedures for reading and writing coils and registers.
+    ! Author: Kun Chang
+    ! Last Update: [2025-05-23]
+
+	!Example code to use the MobusTCP Client to read and write coils and registers.
+	!	LOCAL PERS bool coils{10}:=[FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE];
+	!	LOCAL PERS num holdingRegisters{10}:=[9,8,7,6,5,4,3,2,1,0];
+	!	LOCAL PERS num inputRegisters{10}:=[1,2,3,4,5,6,7,8,9,10];
+	!	! modbus device default ID
+	!	LOCAL CONST byte ID:=1; 
+	!	LOCAL var ModbusSocket mbSocket;
+	!	! Modbus server device IP address
+	!	LOCAL var ModbusServerConfig msConf:=["192.168.125.188",502,0.1,5,5,5];
+	!	
+	!	LOCAL PROC ModbusClientExample()
+	!		
+	!		VAR num uint16_regs{2};
+	!		VAR num int16_val;
+	!		VAR num float32_val;
+	!		VAR num result1;
+	!		VAR num result2;
+	!		VAR dnum int32_val;
+	!		VAR dnum uint32_val;
+	!		VAR dnum result3;
+	!		VAR dnum result4;
+	!		
+	!		FC01_ReadCoils 0,10,coils,ID,mbSocket,msConf;
+	!		TPWrite "Coils: "+ValToStr(coils);
+	!		
+	!		FOR i FROM 0 TO 9 DO
+	!			FC05_WriteSingleCoil i,COIL_ON,ID,mbSocket,msConf;
+	!		ENDFOR
+	! 
+	!		FC02_ReadDiscreteInputs 0,10,coils,ID,mbSocket,msConf;
+	!		TPWrite "ReadDiscreteInputs 0~9: "+ValToStr(coils);
+    !
+	!		FC0F_WriteMultipleCoils 0,10,[FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE],ID,mbSocket,msConf;
+	!		
+	!		FC03_ReadHoldingRegisters 0,10,holdingRegisters,ID,mbSocket,msConf;
+	!		TPWrite "ReadHoldingRegisters 0~9: "+ValToStr(holdingRegisters);
+    !
+	!		FOR i FROM 0 TO 9 DO
+	!			FC06_WriteSingleRegister i,i,ID,mbSocket,msConf;
+	!		ENDFOR
+	!
+	!		FC04_ReadInputRegisters 0,10,inputRegisters,ID,mbSocket,msConf;
+	!		TPWrite "ReadInputRegisters 0~9: "+ValToStr(inputRegisters);
+	!
+	!		FC10_WriteMultipleRegisters 0,10,[9,8,7,6,5,4,3,2,1,0],ID,mbSocket,msConf;
+	!
+	!		int16_val:=-123;
+	!		FC06_WriteSingleRegister 0,Int16ToUint16(int16_val),ID,mbSocket,msConf;
+	!
+	!		FC03_ReadHoldingRegisters 0,1,uint16_regs,ID,mbSocket,msConf;
+	!		result1:=Uint16ToInt16(uint16_regs{1});
+	!
+	!		float32_val:=-3.14159;
+	!		Float32ToTwoUint16 float32_val,uint16_regs{1},uint16_regs{2};
+	!		FC10_WriteMultipleRegisters 0,2,uint16_regs,ID,mbSocket,msConf;
+	!
+	!		FC03_ReadHoldingRegisters 0,2,uint16_regs,ID,mbSocket,msConf;
+	!		result2:=TwoUint16ToFloat32(uint16_regs{1},uint16_regs{2});
+	!
+	!		int32_val:=-1234567;
+	!		I32ToTwoUint16 int32_val,DINT,uint16_regs{1},uint16_regs{2};
+	!		FC10_WriteMultipleRegisters 0,2,uint16_regs,ID,mbSocket,msConf;
+	!
+	!		FC03_ReadHoldingRegisters 0,2,uint16_regs,ID,mbSocket,msConf;
+	!		result3:=TwoUint16ToI32(uint16_regs{1},uint16_regs{2},DINT);
+	!
+	!		uint32_val:=7654321;
+	!		I32ToTwoUint16 uint32_val,UDINT,uint16_regs{1},uint16_regs{2};
+	!		FC10_WriteMultipleRegisters 0,2,uint16_regs,ID,mbSocket,msConf;
+	!
+	!		FC03_ReadHoldingRegisters 0,2,uint16_regs,ID,mbSocket,msConf;
+	!		result4:=TwoUint16ToI32(uint16_regs{1},uint16_regs{2},UDINT);
+	!	ENDPROC
+
+    !-----------------------Public Modbus TCP Client Functions -----------------------------
+    ! Procedure: FC01_ReadCoils
+    ! Reads multiple coils from a Modbus Server device (Function Code 0x01).
+    ! Parameters:
+    !   StartingAddress (num): Starting address of the coils.
+    !   CoilsQuantity (num): Number of coils to read.
+    !   CoilsValue (bool array, INOUT): Array to store the coil states.
+    !   ID (byte): Server ID.
+    !   MbSocket (VAR ModbusSocket): Modbus socket.
+    !   Conf (ModbusServerConfig): Modbus configuration settings.
+    PROC FC01_ReadCoils(num StartingAddress,num CoilsQuantity,inout bool CoilsValue{*},byte ID,var ModbusSocket MbSocket,ModbusServerConfig Conf)
+        VAR string strFunction:="FC01 Read Coils";
+        VAR byte responseData{300};
+        VAR byte CMDTCP{300};
+        VAR num cmdTCPLength:=0;
+        VAR ModbusMBAP requestMBAP;
+        VAR ModbusMBAP responseMBAP;
+        VAR num length;
+        VAR num nBytes;
+        VAR byte tempByte;
+        VAR num currentCount:=0;
+
+        IF 0 < CoilsQuantity AND CoilsQuantity <= 2000 THEN
+            MbGenerateRequestSingle ID,MB_READ_COILS,StartingAddress,coilsQuantity,CMDTCP,cmdTCPLength,requestMBAP;
+            MbSendRequestAndReceive MbSocket,Conf,strFunction,CMDTCP,cmdTCPLength,requestMBAP,responseData,length,responseMBAP;
+            nBytes:=responseData{9};
+            IF nBytes = (CoilsQuantity+7) DIV 8 THEN
+                currentCount:=1;
+                FOR i FROM 1 TO nBytes DO
+                    tempByte:=responseData{9+i};
+                    FOR bit FROM 0 TO 7 DO
+                        IF currentCount>CoilsQuantity THEN
+                            RETURN;
+                        ENDIF
+                        tempByte:=BitRSh(responseData{9+i},bit);
+                        CoilsValue{currentCount}:=BitAnd(tempByte,1)=1;
+                        Incr currentCount;
+                    ENDFOR
+                ENDFOR
+            ELSE
+                ErrRaise "ERR_MB_FUNCTION",ID_ERR_MB_FUNCTION,ERRSTR_TASK, "Quantity mismatch", strFunction + " expect bytes "+valtostr((CoilsQuantity+7)DIV 8)+", actual:"+valtostr(nBytes),ERRSTR_UNUSED,ERRSTR_CONTEXT;
+            ENDIF
+        ELSE
+            ErrRaise "ERR_MB_FUNCTION",ID_ERR_MB_FUNCTION,ERRSTR_TASK,MB_FUNCTION_ERR_DESCRIPTION{MB_ILLEGAL_DATA_VALUE},strFunction + " expect quantity[1,2000], actual:"+valtostr(CoilsQuantity),ERRSTR_UNUSED,ERRSTR_CONTEXT;
+        ENDIF
+    ERROR
+        IF ModBusSocketDebug THEN
+            TPWrite strFunction+" Err Code: "+ValToStr(ERRNO);
+        ENDIF
+
+        RAISE ;
+
+    ENDPROC
+
+    ! Procedure: FC02_ReadDiscreteInputs
+    ! Reads multiple discrete inputs from a Modbus Server device (Function Code 0x02).
+    ! Parameters:
+    !   StartingAddress (num): Starting address of the discrete inputs.
+    !   InputsQuantity (num): Number of discrete inputs to read.
+    !   InputsValue (bool array, INOUT): Array to store the input states.
+    !   ID (byte): Server ID.
+    !   MbSocket (VAR ModbusSocket): Modbus socket.
+    !   Conf (ModbusServerConfig): Modbus configuration settings.
+    PROC FC02_ReadDiscreteInputs(num StartingAddress,num InputsQuantity,inout bool InputsValue{*},byte ID,var ModbusSocket MbSocket,ModbusServerConfig Conf)
+        VAR string strFunction:="FC02 Read Discrete Inputs";
+        VAR byte responseData{300};
+        VAR byte CMDTCP{300};
+        VAR num cmdTCPLength:=0;
+        VAR ModbusMBAP requestMBAP;
+        VAR ModbusMBAP responseMBAP;
+        VAR num length;
+        VAR num nBytes;
+        VAR byte tempByte;
+        VAR num currentCount:=0;
+
+        IF 0 < InputsQuantity AND InputsQuantity <= 2000 THEN
+            MbGenerateRequestSingle ID,MB_READ_DISCRETE_INPUTS,StartingAddress,InputsQuantity,CMDTCP,cmdTCPLength,requestMBAP;
+            MbSendRequestAndReceive MbSocket,Conf,strFunction,CMDTCP,cmdTCPLength,requestMBAP,responseData,length,responseMBAP;
+            nBytes:=responseData{9};
+            IF nBytes = (InputsQuantity + 7) DIV 8 THEN
+                currentCount:=1;
+                FOR i FROM 1 TO nBytes DO
+                    tempByte:=responseData{9+i};
+                    FOR bit FROM 0 TO 7 DO
+                        InputsValue{currentCount}:=BitAnd(BitRSh(tempByte,bit),1)=1;
+                        Incr currentCount;
+                        IF currentCount>InputsQuantity THEN
+                            RETURN ;
+                        ENDIF
+                    ENDFOR
+                ENDFOR
+            ELSE
+                ErrRaise "ERR_MB_FUNCTION",ID_ERR_MB_FUNCTION,ERRSTR_TASK,"Quantity mismatch", strFunction + " expect bytes "+valtostr((InputsQuantity+7)DIV 8)+", actual:"+valtostr(nBytes),ERRSTR_UNUSED,ERRSTR_CONTEXT;
+            ENDIF
+        ELSE
+            ErrRaise "ERR_MB_FUNCTION",ID_ERR_MB_FUNCTION,ERRSTR_TASK,MB_FUNCTION_ERR_DESCRIPTION{MB_ILLEGAL_DATA_VALUE},strFunction + " expect quantity[1,2000], actual:"+valtostr(InputsQuantity),ERRSTR_UNUSED,ERRSTR_CONTEXT;
+        ENDIF
+    ERROR
+        IF ModBusSocketDebug THEN
+            TPWrite strFunction+" Err Code: "+ValToStr(ERRNO);
+        ENDIF
+        RAISE ;
+    ENDPROC
+
+    ! Procedure: FC03_ReadHoldingRegisters
+    ! Reads holding registers from a Modbus Server device (Function Code 0x03).
+    ! Support data (only UINT16)
+    ! Data format: Big-ending
+    ! Parameters:
+    !   StartingAddress (num): Starting address of the holding registers.
+    !   RegistersQuantity (num): Number of registers to read.
+    !   RegistersValue (num array, INOUT): Array to store the register values.UInt16
+    !   ID (byte): Server ID.
+    !   MbSocket (VAR ModbusSocket): Modbus socket.
+    !   Conf (ModbusServerConfig): Modbus configuration settings.
+    PROC FC03_ReadHoldingRegisters(num StartingAddress,num RegistersQuantity,inout num RegistersValue{*},byte ID,var ModbusSocket MbSocket,ModbusServerConfig Conf)
+        VAR string strFunction:="FC03 Read Holding Registers";
+        VAR byte responseData{300};
+        VAR byte CMDTCP{300};
+        VAR num cmdTCPLength:=0;
+        VAR ModbusMBAP requestMBAP;
+        VAR ModbusMBAP responseMBAP;
+        VAR num length;
+        VAR num regCount;
+
+        IF 0 < RegistersQuantity AND RegistersQuantity <= 125 THEN
+            MbGenerateRequestSingle ID,MB_READ_HOLDING_REGISTERS,StartingAddress,RegistersQuantity,CMDTCP,cmdTCPLength,requestMBAP;
+            MbSendRequestAndReceive MbSocket,Conf,strFunction,CMDTCP,cmdTCPLength,requestMBAP,responseData,length,responseMBAP;
+            regCount:=responseData{9} DIV 2;
+            IF regCount = RegistersQuantity THEN
+                FOR i FROM 1 TO regCount DO
+                    RegistersValue{i}:=TwoBytesToUInt16(responseData{10+(i-1)*2},responseData{11+(i-1)*2});
+                ENDFOR
+            ELSE
+                ErrRaise "ERR_MB_FUNCTION",ID_ERR_MB_FUNCTION,ERRSTR_TASK,"Quantity mismatch", strFunction + " expect quantity "+valtostr(RegistersQuantity)+", actual:"+valtostr(regCount),ERRSTR_UNUSED,ERRSTR_CONTEXT;
+            ENDIF
+        ELSE
+            ErrRaise "ERR_MB_FUNCTION",ID_ERR_MB_FUNCTION,ERRSTR_TASK,MB_FUNCTION_ERR_DESCRIPTION{MB_ILLEGAL_DATA_VALUE},strFunction + " expect quantity[1,125], actual:"+valtostr(RegistersQuantity),ERRSTR_UNUSED,ERRSTR_CONTEXT;
+        ENDIF
+    ERROR
+        IF ModBusSocketDebug THEN
+            TPWrite strFunction+" Err Code: "+ValToStr(ERRNO);
+        ENDIF
+        RAISE ;
+
+    ENDPROC
+
+
+    ! Procedure: FC04_ReadInputRegisters
+    ! Reads input registers from a Modbus Server device (Function Code 0x04).
+    ! Support data (only UINT16)
+    ! Data format: Big-ending
+    ! Parameters:
+    !   StartingAddress (num): Starting address of the input registers.
+    !   RegistersQuantity (num): Number of registers to read.
+    !   RegistersValue (num array, INOUT): Array to store the register values.
+    !   ID (byte): Server ID.
+    !   MbSocket (VAR ModbusSocket): Modbus socket.
+    !   Conf (ModbusServerConfig): Modbus configuration settings.
+    PROC FC04_ReadInputRegisters(num StartingAddress,num RegistersQuantity,inout num RegistersValue{*},byte ID,var ModbusSocket MbSocket,ModbusServerConfig Conf)
+        VAR string strFunction:="FC04 Read Input Registers";
+        VAR byte responseData{300};
+        VAR byte CMDTCP{300};
+        VAR num cmdTCPLength:=0;
+        VAR ModbusMBAP requestMBAP;
+        VAR ModbusMBAP responseMBAP;
+        VAR num length;
+        VAR num regCount;
+
+        IF 0 < RegistersQuantity AND RegistersQuantity <= 125 THEN
+            MbGenerateRequestSingle ID,MB_READ_INPUT_REGISTERS,StartingAddress,RegistersQuantity,CMDTCP,cmdTCPLength,requestMBAP;
+            MbSendRequestAndReceive MbSocket,Conf,strFunction,CMDTCP,cmdTCPLength,requestMBAP,responseData,length,responseMBAP;
+            regCount:=responseData{9} DIV 2;
+            IF regCount = RegistersQuantity THEN
+                FOR i FROM 1 TO regCount DO
+                    RegistersValue{i}:=TwoBytesToUint16(responseData{10+(i-1)*2},responseData{11+(i-1)*2});
+                ENDFOR
+            ELSE
+                ErrRaise "ERR_MB_FUNCTION",ID_ERR_MB_FUNCTION,ERRSTR_TASK,"Quantity mismatch", strFunction + " expect quantity "+valtostr(RegistersQuantity)+", actual:"+valtostr(regCount),ERRSTR_UNUSED,ERRSTR_CONTEXT;
+            ENDIF
+        ELSE
+            ErrRaise "ERR_MB_FUNCTION",ID_ERR_MB_FUNCTION,ERRSTR_TASK,MB_FUNCTION_ERR_DESCRIPTION{MB_ILLEGAL_DATA_VALUE},strFunction + " expect quantity[1,125], actual:"+valtostr(RegistersQuantity),ERRSTR_UNUSED,ERRSTR_CONTEXT;
+        ENDIF
+    ERROR
+        IF ModBusSocketDebug THEN
+            TPWrite strFunction+" Err Code: "+ValToStr(ERRNO);
+        ENDIF
+        RAISE ;
+
+    ENDPROC
+
+
+    ! Procedure: FC05_WriteSingleCoil
+    ! Writes a single coil to a Modbus Server device (Function Code 0x05).
+    ! Parameters:
+    !   CoilAddress (num): Address of the coil.
+    !   CoilValue (num): Value to write (COIL_ON or COIL_OFF).
+    !   ID (byte): Server ID.
+    !   MbSocket (VAR ModbusSocket): Modbus socket.
+    !   Conf (ModbusServerConfig): Modbus configuration settings.
+    PROC FC05_WriteSingleCoil(num CoilAddress,num CoilValue,byte ID,var ModbusSocket MbSocket,ModbusServerConfig Conf)
+        VAR string strFunction:="FC05 Write Single Coil";
+        VAR byte responseData{300};
+        VAR byte CMDTCP{300};
+        VAR num cmdTCPLength:=0;
+        VAR ModbusMBAP requestMBAP;
+        VAR ModbusMBAP responseMBAP;
+        VAR num length;
+
+        MbGenerateRequestSingle ID,MB_WRITE_SINGLE_COIL,CoilAddress,CoilValue,CMDTCP,cmdTCPLength,requestMBAP;
+        MbSendRequestAndReceive MbSocket,Conf,strFunction,CMDTCP,cmdTCPLength,requestMBAP,responseData,length,responseMBAP;
+
+    ERROR
+        IF ModBusSocketDebug THEN
+            TPWrite strFunction+" Err Code: "+ValToStr(ERRNO);
+        ENDIF
+        RAISE ;
+
+    ENDPROC
+
+    ! Procedure: FC06_WriteSingleRegister
+    ! Writes a single register to a Modbus Server device (Function Code 0x06).
+    ! Support data (only UINT16)
+    ! Data format: Big-ending
+    ! Parameters:
+    !   RegisterAddress (num): Address of the register.
+    !   RegisterValue (num): Value to write.
+    !   ID (byte): Server ID.
+    !   MbSocket (VAR ModbusSocket): Modbus socket.
+    !   Conf (ModbusServerConfig): Modbus configuration settings.
+    PROC FC06_WriteSingleRegister(num RegisterAddress,num RegisterValue,byte ID,var ModbusSocket MbSocket,ModbusServerConfig Conf)
+        VAR string strFunction:="FC06 Write Single Register";
+        VAR byte responseData{300};
+        VAR byte CMDTCP{300};
+        VAR num cmdTCPLength:=0;
+        VAR ModbusMBAP requestMBAP;
+        VAR ModbusMBAP responseMBAP;
+        VAR num length;
+
+        MbGenerateRequestSingle ID,MB_WRITE_SINGLE_REGISTER,RegisterAddress,RegisterValue,CMDTCP,cmdTCPLength,requestMBAP;
+        MbSendRequestAndReceive MbSocket,Conf,strFunction,CMDTCP,cmdTCPLength,requestMBAP,responseData,length,responseMBAP;
+
+    ERROR
+        IF ModBusSocketDebug THEN
+            TPWrite strFunction+" Err Code: "+ValToStr(ERRNO);
+        ENDIF
+        RAISE ;
+    ENDPROC
+
+
+    ! Procedure: FC0F_WriteMultipleCoils
+    ! Writes multiple coils to a Modbus Server device (Function Code 0x0F).
+    ! Parameters:
+    !   StartingAddress (num): Starting address of the coils.
+    !   CoilsQuantity (num): Number of coils to write.
+    !   CoilsValue (bool array): Array of coil states to write.
+    !   ID (byte): Server ID.
+    !   MbSocket (VAR ModbusSocket): Modbus socket.
+    !   Conf (ModbusServerConfig): Modbus configuration settings.
+    PROC FC0F_WriteMultipleCoils(num StartingAddress,num CoilsQuantity,bool CoilsValue{*},byte ID,var ModbusSocket MbSocket,ModbusServerConfig Conf)
+        VAR string strFunction:="FC0F Write Multiple Coils";
+        VAR byte responseData{300};
+        VAR byte CMDTCP{300};
+        VAR num cmdTCPLength:=0;
+        VAR ModbusMBAP requestMBAP;
+        VAR ModbusMBAP responseMBAP;
+        VAR num length;
+        VAR byte nBytes;
+        VAR byte Bytes{255};
+        VAR num i;
+        VAR num bitIdx;
+        VAR byte tempByte;
+
+
+        IF 0 < CoilsQuantity AND CoilsQuantity <= 1968 THEN
+            nBytes:=CoilsQuantity DIV 8;
+            IF (CoilsQuantity MOD 8)<>0 THEN
+                Incr nBytes;
+            ENDIF
+    
+            FOR i FROM 1 TO nBytes DO
+                tempByte:=0;
+                FOR bitIdx FROM 0 TO 7 DO
+                    IF ((i-1)*8+bitIdx+1)>CoilsQuantity THEN
+                        CONTINUE;
+                    ENDIF
+                    IF CoilsValue{(i-1)*8+bitIdx+1} THEN
+                        tempByte:=tempByte+BitLSh(1,bitIdx);
+                    ENDIF
+                ENDFOR
+                Bytes{i}:=tempByte;
+            ENDFOR
+    
+            MbGenerateRequestMulti ID,MB_WRITE_MULTIPLE_COILS,StartingAddress,CoilsQuantity,nBytes,Bytes,CMDTCP,cmdTCPLength,requestMBAP;
+            MbSendRequestAndReceive MbSocket,Conf,strFunction,CMDTCP,cmdTCPLength,requestMBAP,responseData,length,responseMBAP;
+        ELSE
+            ErrRaise "ERR_MB_FUNCTION",ID_ERR_MB_FUNCTION,ERRSTR_TASK,MB_FUNCTION_ERR_DESCRIPTION{MB_ILLEGAL_DATA_VALUE},strFunction + " expect quantity[1,1968], actual:"+valtostr(CoilsQuantity),ERRSTR_UNUSED,ERRSTR_CONTEXT;
+        ENDIF
+
+    ERROR
+        IF ModBusSocketDebug THEN
+            TPWrite strFunction+" Err Code: "+ValToStr(ERRNO);
+        ENDIF
+        RAISE ;
+
+    ENDPROC
+
+
+    ! Procedure: FC10_WriteMultipleRegisters
+    ! Writes multiple registers to a Modbus Server device (Function Code 0x10).
+    ! Support data (only UINT16)
+    ! Data format: Big-ending
+    ! Parameters:
+    !   StartingAddress (num): Starting address of the registers.
+    !   RegistersQuantity (num): Number of registers to write.
+    !   RegistersValue (num array): Array of values to write.
+    !   ID (byte): Server ID.
+    !   MbSocket (VAR ModbusSocket): Modbus socket.
+    !   Conf (ModbusServerConfig): Modbus configuration settings.
+    PROC FC10_WriteMultipleRegisters(num StartingAddress,num RegistersQuantity,num RegistersValue{*},byte ID,var ModbusSocket MbSocket,ModbusServerConfig Conf)
+        VAR string strFunction:="FC10 Write Multiple Registers";
+        VAR byte responseData{300};
+        VAR byte CMDTCP{300};
+        VAR num cmdTCPLength:=0;
+        VAR ModbusMBAP requestMBAP;
+        VAR ModbusMBAP responseMBAP;
+        VAR num length;
+        VAR byte nBytes;
+        VAR byte Bytes{255};
+        VAR byte H;
+        VAR byte L;
+
+
+        IF 0 < RegistersQuantity AND RegistersQuantity <= 123 THEN
+            nBytes:=2*RegistersQuantity;
+            ! Convert RegistersValue (num array) to Bytes (byte array, high byte first)
+            FOR i FROM 1 TO RegistersQuantity DO
+                UInt16ToBytes RegistersValue{i},H,L;
+                Bytes{(i-1)*2+1}:=H;
+                Bytes{(i-1)*2+2}:=L;
+            ENDFOR
+    
+            MbGenerateRequestMulti ID,MB_WRITE_MULTIPLE_REGISTERS,StartingAddress,RegistersQuantity,nBytes,Bytes,CMDTCP,cmdTCPLength,requestMBAP;
+            MbSendRequestAndReceive MbSocket,Conf,strFunction,CMDTCP,cmdTCPLength,requestMBAP,responseData,length,responseMBAP;
+        ELSE
+            ErrRaise "ERR_MB_FUNCTION",ID_ERR_MB_FUNCTION,ERRSTR_TASK,MB_FUNCTION_ERR_DESCRIPTION{MB_ILLEGAL_DATA_VALUE},strFunction + " expect quantity[1,123], actual:"+valtostr(RegistersQuantity),ERRSTR_UNUSED,ERRSTR_CONTEXT;
+        ENDIF
+
+    ERROR
+        IF ModBusSocketDebug THEN
+            TPWrite strFunction+" Err Code: "+ValToStr(ERRNO);
+        ENDIF
+        RAISE ;
+
+    ENDPROC
+
+    ! ----------------------  Local Functions ------------------------------
+    ! Procedure: MbGenerateRequestSingle
+    ! Generates a Modbus TCP command for single register or coil operations.
+    ! Parameters:
+    !   ID (byte): Unit identifier.
+    !   FCode (byte): Function code.
+    !   Address (num): Address of the register or coil.
+    !   SingleData (num): Input data 16bit.
+    !   CMD (byte array, VAR): Output command byte array.
+    !   CmdLength (num, INOUT): Length of the output command.
+    !   RequestMBAP (ModbusMBAP, INOUT): MBAP header structure.
+    LOCAL PROC MbGenerateRequestSingle(byte ID,byte FCode,num Address,num SingleData,VAR byte CMD{*},inout num CmdLength,INOUT ModbusMBAP RequestMBAP)
+        VAR num pduLength:=0;
+        VAR byte H;
+        VAR byte L;
+
+        pduLength:=5;
+        RequestMBAP:=GenerateMBAP(pduLength+1,ID);
+        MBAPToBytes RequestMBAP,CMD;
+        !PDU
+        CMD{MBAP_FRAME_LENGTH + 1}:=FCode;
+        UInt16ToBytes Address,H,L;
+        CMD{MBAP_FRAME_LENGTH + 2}:=H;
+        CMD{MBAP_FRAME_LENGTH + 3}:=L;
+        Uint16ToBytes SingleData,H,L;
+        CMD{MBAP_FRAME_LENGTH + 4}:=H;
+        CMD{MBAP_FRAME_LENGTH + 5}:=L;
+        CmdLength:=MBAP_FRAME_LENGTH + pduLength;
+    ENDPROC
+
+    ! Procedure: MbGenerateRequestMulti
+    ! Generates a Modbus TCP command for multiple register operations.
+    ! Parameters:
+    !   ID (byte): Unit identifier.
+    !   FCode (byte): Function code.
+    !   Address (num): Starting address of the registers.
+    !   NRegister (num): Number of registers.
+    !   NByte (byte): Number of bytes in the input data.
+    !   OutputsValue (byte array): Input data array.
+    !   CMD (byte array, VAR): Output command byte array.
+    !   CmdLength (num, INOUT): Length of the output command.
+    !   RequestMBAP (ModbusMBAP, INOUT): MBAP header structure.
+    LOCAL PROC MbGenerateRequestMulti(byte ID,byte FCode,num Address,num NRegister,byte NByte,byte OutputsValue{*},VAR byte CMD{*},inout num CmdLength,INOUT ModbusMBAP RequestMBAP)
+        VAR num pduLength:=0;
+        VAR byte H;
+        VAR byte L;
+
+        pduLength:=6+NByte;
+        RequestMBAP:=GenerateMBAP(pduLength+1,ID);
+        MBAPToBytes RequestMBAP,CMD;
+        !PDU
+        CMD{MBAP_FRAME_LENGTH + 1}:=FCode;
+        
+        UInt16ToBytes Address,H,L;
+        CMD{MBAP_FRAME_LENGTH + 2}:=H;
+        CMD{MBAP_FRAME_LENGTH + 3}:=L;
+
+        UInt16ToBytes NRegister,H,L;
+        CMD{MBAP_FRAME_LENGTH + 4}:=H;
+        CMD{MBAP_FRAME_LENGTH + 5}:=L;
+        CMD{MBAP_FRAME_LENGTH + 6}:=NByte;
+
+        FOR index FROM 1 TO NByte DO
+            CMD{13+index}:=OutputsValue{index};
+        ENDFOR
+        CmdLength:=MBAP_FRAME_LENGTH + pduLength;
+    ENDPROC
+
+    ! Procedure: MbClientConnect
+    ! Checks and manages the state of a Modbus socket client, and attempts to connect as needed.
+    ! Parameters:
+    !   MbSocket (VAR ModbusSocket): The Modbus socket client.
+    !   Status (INOUT num): Current status of the socket.
+    !   Ip (string): IP address of the server.
+    !   Port (num): Port number of the server.
+    !   ConnectTimeOut (num): Maximum connection timeout.
+    !   ConnectRetryCount (num): Number of retry attempts.
+    ! Returns: None
+    LOCAL PROC MbClientConnect(VAR ModbusSocket MbSocket,ModbusServerConfig Conf)
+        VAR socketstatus sStatus;
+        VAR num nNoOfTries;
+        VAR bool TimeFlag;
+
+        IF NOT MbErrBooked THEN
+            MbBookErrNo;
+            MbErrBooked:=TRUE;
+        ENDIF
+        !Try to connect until out of ConnectRetryCount
+        WHILE TRUE DO
+            !Read actual socket state
+            sStatus:=SocketGetStatus(MbSocket);
+            !Test current state
+            TEST sStatus
+            CASE SOCKET_CREATED:
+                !workaround when the modus client and server tasks work together
+                ModbusSync:=false;
+                WaitUntil ModbusSync=TRUE\MaxTime:=0.4\TimeFlag:=TimeFlag;
+                !workaround end
+                SocketConnect MbSocket,Conf.Ip,Conf.Port\Time:=Conf.ConnectTimeOut;
+                IF SocketGetStatus(MbSocket)=SOCKET_CONNECTED THEN
+                    ErrLog ID_INF_MB_COMM_ESTABLISHED\i,ERRSTR_TASK,"Modbus client","Remoter IP: "+Conf.Ip+" Port: "+valToStr(Conf.Port),MB_VERSION,ERRSTR_EMPTY;
+                ENDIF
+               
+            CASE SOCKET_CONNECTED:
+                !Client is connected to a server
+                RETURN;
+            CASE SOCKET_CLOSED:
+                !Socket is closed
+                SocketCreate MbSocket;
+            ENDTEST
+        ENDWHILE
+    ERROR
+        SkipWarn;
+        Incr nNoOfTries;
+        TEST ERRNO
+        CASE ERR_SOCK_CLOSED:
+            !Socket closed or not created
+            !Socket will be created with next status request
+            TRYNEXT;
+        CASE ERR_SOCK_TIMEOUT:
+            !Connection not established in given time
+            SocketClose MbSocket;
+            IF nNoOfTries>=Conf.ConnectRetryCount THEN
+                ErrLog ID_ERR_MB_TIMEOUT,ERRSTR_TASK,"Connect Modbus TCP Server time out (" + Conf.Ip + ":"+ValToStr(Conf.Port)+")",ERRSTR_UNUSED,ERRSTR_UNUSED,ERRSTR_CONTEXT;
+                RAISE ERR_MB_TIMEOUT;
+            ELSE
+                WaitTime 0.1;
+                TRYNEXT;
+            ENDIF
+        ENDTEST
+        RAISE ;
+    ENDPROC
+
+    ! Procedure: MbReceiveResponse
+    ! Receives a complete Modbus TCP message.
+    ! Parameters:
+    !   MbSocket (VAR ModbusSocket): Modbus socket client.
+    !   Conf (ModbusServerConfig): Modbus configuration settings.
+    !   ByteArray (byte array, INOUT): Byte array for the received message.
+    !   Length (num, INOUT): Length of the received message.
+    !   ResponseMBAP (ModbusMBAP, INOUT): MBAP header structure.
+    !   TimeOut (bool, VAR): Indicates if a timeout occurred.
+    LOCAL PROC MbReceiveResponse(VAR ModbusSocket MbSocket,ModbusServerConfig Conf,inout byte ByteArray{*},inout num Length,inout ModbusMBAP ResponseMBAP,var bool TimeOut)
+        VAR byte MBAPBytes{7};
+        VAR num MBAPLength;
+        VAR byte PDU{255};
+        VAR num PDULength;
+
+        MbClientConnect MbSocket,Conf;
+        MbReceiveBytes MbSocket,MBAPBytes,MBAP_FRAME_LENGTH,MBAPLength,Conf.ReceiveTimeOut,TimeOut;
+        ResponseMBAP:=BytesToMBAP(MBAPBytes);
+        IF TimeOut = FALSE THEN
+            IF ModbusSocketDebug THEN
+                PrintMBAP ResponseMBAP;
+            ENDIF         
+            IF ResponseMBAP.Length-1 >253 OR ResponseMBAP.Length < 3 THEN
+                ErrLog ID_ERR_MB_FORMAT,ERRSTR_TASK,"Invalid MBAP length","Expect length [5,253] bytes, actual "+ValtoStr(ResponseMBAP.Length),ERRSTR_UNUSED,ERRSTR_CONTEXT;
+                SocketClose MbSocket;
+                RAISE ERR_MB_FORMAT;
+            ENDIF         
+            MbReceiveBytes MbSocket,PDU,ResponseMBAP.Length-1,PDULength,Conf.ReceiveTimeOut,TimeOut;
+            IF TimeOut = FALSE THEN
+                ArrayCombine MBAPBytes,MBAP_FRAME_LENGTH,PDU,PDULength,ByteArray,Length;
+                IF ModbusSocketDebug THEN
+                    PrintBytes "Receive",ByteArray,Length;
+                    MbWriteLog ModbusLogFile,"Receive "+ Conf.Ip,BytesToStr(ByteArray,Length);
+                ENDIF
+            ENDIF
+        ENDIF
+
+    ERROR
+        RAISE ;
+
+    ENDPROC
+
+    ! Procedure: MbSendRequestAndReceive
+    ! Sends a Modbus TCP message and waits for a response.
+    ! Parameters:
+    !   MbSocket (VAR ModbusSocket): Modbus socket client.
+    !   Conf (ModbusServerConfig): Modbus configuration settings.
+    !   strFunction (string): Function description.
+    !   InByteArray (byte array): Input byte array to send.
+    !   NoOfBytes (num): Number of bytes to send.
+    !   ReqTid (num): RequestMBAP.TransactionIdentifier
+    !   OutByteArray (byte array, INOUT): Byte array for the received response.
+    !   RLength (num, INOUT): Length of the received response.
+    !   ResponseMBAP (ModbusMBAP, INOUT): MBAP header structure.
+    !   TimeOut (bool, VAR): Indicates if a timeout occurred.
+    LOCAL PROC MbSendRequestAndReceive(VAR ModbusSocket MbSocket,ModbusServerConfig Conf,string strFunction, byte InByteArray{*},num NoOfBytes,ModbusMBAP RequestMBAP,inout byte OutByteArray{*},INOUT num RLength,inout ModbusMBAP ResponseMBAP)
+        VAR string errMsg;
+        VAR bool TimeOut;
+        VAR errnum RcvError;
+
+        FOR index FROM 0 TO Conf.SendRetryCount STEP 1 DO
+            MbClientConnect MbSocket,Conf;
+            MbSendBytes MbSocket,Conf,InByteArray,NoOfBytes;
+            MbReceiveResponse MbSocket,Conf,OutByteArray,RLength,ResponseMBAP,TimeOut;
+            IF TimeOut = FALSE THEN
+                !received
+
+                IF RequestMBAP.TransactionIdentifier<>ResponseMBAP.TransactionIdentifier THEN
+                    ErrLog ID_ERR_MB_FORMAT\W,ERRSTR_TASK,"MBAP mismatch","The transaction identifier for sending and receiving doesn't match",ERRSTR_UNUSED,ERRSTR_CONTEXT;
+                    RcvError:= ERR_MB_FORMAT;
+                    SocketClose MbSocket;
+                    WaitTime 0.1;
+                    CONTINUE;
+                ENDIF
+                
+                IF RequestMBAP.UnitIdentifier<>ResponseMBAP.UnitIdentifier THEN
+                    ErrLog ID_ERR_MB_FORMAT,ERRSTR_TASK,"MBAP mismatch","The unit identifier for sending and receiving doesn't match",ERRSTR_UNUSED,ERRSTR_CONTEXT;
+                    RAISE ERR_MB_FORMAT;
+                ENDIF
+                
+                 IF RequestMBAP.ProtocolIdentifier<>ResponseMBAP.ProtocolIdentifier THEN
+                    ErrLog ID_ERR_MB_FORMAT,ERRSTR_TASK,"MBAP mismatch","The protocol identifier for sending and receiving doesn't match",ERRSTR_UNUSED,ERRSTR_CONTEXT;
+                    RAISE ERR_MB_FORMAT;
+                ENDIF
+                
+                IF MbIsExceptionResponse(OutByteArray{8},OutByteArray{9},errMsg) THEN
+                    ErrLog ID_ERR_MB_FUNCTION,ERRSTR_TASK,errMsg,strFunction,ERRSTR_UNUSED,ERRSTR_CONTEXT;
+                    RAISE ERR_MB_FUNCTION;
+                ENDIF
+                !data OK
+                RETURN;
+            ELSE
+                ! Time Out
+                ErrLog ID_ERR_MB_TIMEOUT\W,ERRSTR_TASK,"Receive Modbus Response time out",ERRSTR_UNUSED,ERRSTR_UNUSED,ERRSTR_CONTEXT;
+                RcvError:= ERR_MB_TIMEOUT;
+                SocketClose MbSocket;
+                WaitTime 0.1;
+                CONTINUE;
+            ENDIF
+        ENDFOR
+        
+        TEST RcvError
+        CASE ERR_MB_FORMAT:        
+            ErrLog ID_ERR_MB_FORMAT,ERRSTR_TASK,"MBAP mismatch","The transaction identifier for sending and receiving doesn't match",ERRSTR_UNUSED,ERRSTR_CONTEXT;       
+            RAISE ERR_MB_FORMAT;
+        CASE ERR_MB_TIMEOUT:
+            ErrLog ID_ERR_MB_TIMEOUT,ERRSTR_TASK,"Retry to Send Modbus Request time out",ERRSTR_UNUSED,ERRSTR_UNUSED,ERRSTR_CONTEXT;
+            RAISE ERR_MB_TIMEOUT;
+        ENDTEST
+    ERROR
+        RAISE ;
+
+    ENDPROC
+
+
+ENDMODULE

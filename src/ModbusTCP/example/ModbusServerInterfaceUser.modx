@@ -1,0 +1,86 @@
+MODULE ModbusServerInterfaceUser
+    !************************************************************
+    ! Example code to use the MobusTCP Server Interface to read and write coils and registers in motion task.
+    !************************************************************
+
+    !********************COIL ADDRESS TABLE**********************
+    ! Type     Address   Access      Description
+    ! Coil     0-15      Read        DO Signals  [0]MotorsOn  [1]AutoOn  [2]CycleOn  [3]ExecutionError
+    ! Coil     16-31     Read&Write  DI Signals, [16]MotorsOn [17]MotorsOff [18]PPToMain [19]Start [20]Stop 
+    ! Coil     32-95     Read        DO Signals
+    ! Coil     96-159    Read&Write  DI Signals
+    !************************************************************
+    ! Virtual/MB_Device/IO signals
+    !************************************************************
+
+    !*******************REGS ADDRESS TABLE***********************
+    ! Type     Format     Modbus Address   Access      Description
+    ! Regs     Uint16     0-37             Read        0-37 read-only system holding register, reserved for robot system data,follow IEEE754, 2 Regs => 1 float32
+    !                                                  [0][1]ROB1_J1    [2][3]ROB1_J2    [4][5]ROB1_J3    [6][7]ROB1_J4    [8][9]ROB1_J5   [10][11]ROB1_J6
+    !                                                  [12][13]ROB1_EXA [14][15]ROB1_EXB [16][17]ROB1_EXC [18][19]ROB1_EXD [20][21]ROB1_EXE [22][23]ROB1_EXF
+    !                                                  [24][25]ROB1_X   [26][27]ROB1_Y   [28][29]ROB1_Z   [30][31]ROB1_Rz  [32][33]ROB1_Ry  [34][35]ROB1_Rx  [36][37]ROB1_v
+    ! Regs     Uint16    38-49             Read        read-only system holding register,, reserved for robot system data,follow IEEE754, 2 Regs => 1 float32
+    ! Regs     Uint16    50-149            Read        read-only user-Send holding register
+    ! Regs     Uint16    150-299           Write       read/write user-Rcev holding register
+    !****************** SHARED REGS******************************
+    !PERS num MbServerRegsUint16{300};
+    !************************************************************
+
+    !************************************************************
+    ! When modify Modbus Server IP address as Robot WAN IP, Enabling Rapidsocket in firewall and WARMSTART are REQUIRED!
+    ! 根据实际，如果机器人使用WAN口作为ModbusTCP Server IP地址，在TPU修改后台任务IP地址和防火墙后重启。
+    ! T_MbServer/MbServerConfig ["192.168.125.1",502,0.01,0,0,0]
+    
+    PROC ModbusServerExample()
+        VAR num int16_val;
+        VAR num uint16_val;
+        VAR dnum int32_val;
+        VAR dnum uint32_val;
+        VAR num float32_val;
+        VAR num signalVal;
+        
+        IF IsMbServerConnected() THEN
+            !Write and Read Coil
+            ! 设置mb_do32 为1
+            SetDO mb_do32,1;
+            
+            ! 读取输入信号mb_di96
+            signalVal:=mb_dI96;
+            !Write and Read Regs
+
+            !向地址80寄存器写入 带符号 -12345
+            MbUpdateSendRegisterInt16 80,-12345;
+
+            !向地址82寄存器写入 无符号 54321
+            MbUpdateSendRegisterUint16 82,54321;
+
+            !向连续两个寄存器84，85写入 带符号 -8000000
+            MbUpdateSendRegisterInt32 84,-8000000;
+
+            !向连续两个寄存器88，89写入 无符号 8000000
+            MbUpdateSendRegisterUint32 88,8000000;
+
+            !向连续两个寄存器91，92写入 实数123.456
+            MbUpdateSendRegisterFloat32 91,123.456;
+
+
+            !从地址152寄存器读取并转为带符号16bit整数
+            int16_val:=MbReadRecvUsrRegInt16(152);
+
+            !从地址154寄存器读取并转为无符号16bit整数
+            uint16_val:=MbReadRecvUsrRegUint16(154);
+
+            !从连续寄存器156，157读取并转为带符号32bit整数
+            int32_val:=MbReadRecvUsrRegInt32(156);
+
+            !从连续寄存器158，159读取并转为无符号32bit整数
+            uint32_val:=MbReadRecvUsrRegUint32(158);
+
+            !从连续寄存器160，161读取并转为实数
+            float32_val:=MbReadRecvUsrRegFloat32(160);
+
+        ELSE
+            TPWrite "Modbus TCP Server connection is lost !";
+        ENDIF
+    ENDPROC
+ENDMODULE
