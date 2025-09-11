@@ -1,4 +1,4 @@
-# RAPID Modbus TCP
+# RAPID Modbus TCP  [切换中文版](https://github.com/ABB-RARO/rapid-modbus-tcp/blob/main/README_CN.md)
 
 ## Overview  
 **RAPID Modbus TCP** is a simple Modbus/TCP client/server library for ABB robot controllers. It implemented [MODBUS Protocol Specification](https://modbus.org/docs/Modbus_Application_Protocol_V1_1b3.pdf) in ABB RAPID language. The library includes 3 parts, and they can be installed independently based on needs.
@@ -36,10 +36,10 @@ Note: This library will be auto deployed by installing "Modbus TCP for OmniCore"
 ## Code Examples
 ### RAPID Code Example
 - [`\ModbusTCP\example\ModbusServerInterfaceUser.modx`](https://github.com/ABB-RARO/rapid-modbus-tcp/blob/main/src/ModbusTCP/example/ModbusServerInterfaceUser.modx) is the RAPID example code calling server functions in `T_ROB1` motion task. 
-- [`\ModbusTCP\example\ModbusClientUser.modx`](https://github.com/ABB-RARO/rapid-modbus-tcp/blob/main/src/ModbusTCP/example/ModbusTCPClientUser.modx) is the RAPID example code calling cilent functions in `T_ROB1` motion task. 
+- [`\ModbusTCP\example\ModbusClientUser.modx`](https://github.com/ABB-RARO/rapid-modbus-tcp/blob/main/src/ModbusTCP/example/ModbusTCPClientUser.modx) is the RAPID example code calling client functions in `T_ROB1` motion task. 
 
 ### Siemens PLC Example (PLC as the Modbus TCP Client)
-- [SCL code example](https://github.com/ABB-RARO/rapid-modbus-tcp/blob/main/src/SCL_example.md)
+- [SCL code example](https://github.com/ABB-RARO/rapid-modbus-tcp/blob/main/SCL_example.md)
 - [Siemens document](https://support.industry.siemens.com/cs/cn/zh/view/109782521)
 
 ## Cyber Security
