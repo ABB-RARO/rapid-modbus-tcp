@@ -1,7 +1,7 @@
 MODULE ModbusServerMain
     !***********************************************************
     !
-    ! Copyright (c) 2025 ABB Robotics. All rights reserved.
+    ! Copyright (c) 2025 ABB Robotics.
     ! Licensed under the MIT License. See LICENSE.txt in the project root for license information.
     !
     !***********************************************************

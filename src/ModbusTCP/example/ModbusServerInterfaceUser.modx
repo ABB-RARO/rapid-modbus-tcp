@@ -40,43 +40,50 @@ MODULE ModbusServerInterfaceUser
         VAR num signalVal;
         
         IF IsMbServerConnected() THEN
-            !Write and Read Coil
-            ! 设置mb_do32 为1
+            ! Set Coil 32, 设置mb_do32 为1
             SetDO mb_do32,1;
             
-            ! 读取输入信号mb_di96
+            ! Read Coil 96, 读取输入信号mb_di96
             signalVal:=mb_dI96;
-            !Write and Read Regs
 
-            !向地址80寄存器写入 带符号 -12345
+            ! Write -12345 (int16) to register 80
+            ! 向地址80寄存器写入 带符号 -12345
             MbUpdateSendRegisterInt16 80,-12345;
 
-            !向地址82寄存器写入 无符号 54321
+            ! Write 54321 (uint16) to register 82
+            ! 向地址82寄存器写入 无符号 54321
             MbUpdateSendRegisterUint16 82,54321;
 
-            !向连续两个寄存器84，85写入 带符号 -8000000
+            ! Write -8000000 (int32) to 2 registers 84,85
+            ! 向连续两个寄存器84，85写入 带符号 -8000000
             MbUpdateSendRegisterInt32 84,-8000000;
 
-            !向连续两个寄存器88，89写入 无符号 8000000
+            ! Write 8000000 (uint32) to 2 registers 88,89
+            ! 向连续两个寄存器88，89写入 无符号 8000000
             MbUpdateSendRegisterUint32 88,8000000;
 
-            !向连续两个寄存器91，92写入 实数123.456
+            ! Write 123.456 (float32) to 2 registers 91,92
+            ! 向连续两个寄存器91，92写入 实数123.456
             MbUpdateSendRegisterFloat32 91,123.456;
 
-
-            !从地址152寄存器读取并转为带符号16bit整数
+            ! Read register 152 and convert to a signed 16-bit integer
+            ! 从地址152寄存器读取并转为带符号16bit整数
             int16_val:=MbReadRecvUsrRegInt16(152);
 
-            !从地址154寄存器读取并转为无符号16bit整数
+            ! Read register 154 and convert to an unsigned 16-bit integer
+            ! 从地址154寄存器读取并转为无符号16bit整数
             uint16_val:=MbReadRecvUsrRegUint16(154);
 
-            !从连续寄存器156，157读取并转为带符号32bit整数
+            ! Read registers 156,157 and convert to a signed 32-bit integer
+            ! 从连续寄存器156，157读取并转为带符号32bit整数
             int32_val:=MbReadRecvUsrRegInt32(156);
 
-            !从连续寄存器158，159读取并转为无符号32bit整数
+            ! Read registers 158,159 and convert to an unsigned 32-bit integer
+            ! 从连续寄存器158，159读取并转为无符号32bit整数
             uint32_val:=MbReadRecvUsrRegUint32(158);
 
-            !从连续寄存器160，161读取并转为实数
+            ! Read registers 160,161 and convert to float number
+            ! 从连续寄存器160，161读取并转为实数
             float32_val:=MbReadRecvUsrRegFloat32(160);
 
         ELSE
