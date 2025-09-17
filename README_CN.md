@@ -36,7 +36,7 @@
 ## 代码示例
 ### RAPID 代码示例
 - [`\ModbusTCP\example\ModbusServerInterfaceUser.modx`](https://github.com/ABB-RARO/rapid-modbus-tcp/blob/main/src/ModbusTCP/example/ModbusServerInterfaceUser.modx) 在 `T_ROB1` 运动任务中调用服务器 Server 例程. 
-- [`\ModbusTCP\example\ModbusClientUser.modx`](https://github.com/ABB-RARO/rapid-modbus-tcp/blob/main/src/ModbusTCP/example/ModbusTCPClientUser.modx) 在 `T_ROB1` 运动任务中调用客户端 ClientClient 例程. 
+- [`\ModbusTCP\example\ModbusClientUser.modx`](https://github.com/ABB-RARO/rapid-modbus-tcp/blob/main/src/ModbusTCP/example/ModbusTCPClientUser.modx) 在 `T_ROB1` 运动任务中调用客户端 Client 例程. 
 
 ### 西门子 PLC 示例 (PLC 作为 Modbus TCP 客户端)
 - [SCL 代码示例](https://github.com/ABB-RARO/rapid-modbus-tcp/blob/main/SCL_example.md)
@@ -48,3 +48,4 @@
 
 
 如需报告 rapid-modbus-tcp 的安全漏洞，请查看安全策略 [Security Policy](https://github.com/ABB-RARO/rapid-modbus-tcp/blob/main/SECURITY.md) 
+
