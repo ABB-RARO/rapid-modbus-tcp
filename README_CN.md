@@ -14,7 +14,7 @@
 
 ## 快速开始
 注意: 在安装 “Modbus TCP for OmniCore” 插件(Add-in)时会自动安装本 RAPID 程序库。以下指南仅适用于未安装 Modbus TCP 插件的系统。
-###准备工作
+### 准备工作
 - 连接 RobotStudio 和目标 OmniCore 控制器, 用RobotStudio 的 “文件传输“（File Transfer）功能，将 `src\ModbusTCP` 文件夹复制到 `$HOME\ModbusTCP`
 - 用 RobotStudio 的 “配置（Configuration）/ 加载参数（Load Parameters...）” 功能，加载 `src\config\modbusTCP_SIO.cfg`; 或者在 RobotStudio 手动设置防火墙 `Configuration/Communication/Firewall Manager/RapidSockets/Enable on Private Network`为 Yes。
 
@@ -45,5 +45,6 @@
 ## 网络安全
 [Modbus TCP/IP](https://modbus.org/faq.php) 是一种缺乏内置网络安全机制的工业网络协议，请充分了解并评估 Modbus TCP/IP 的安全风险。  
 在 ABB 机器人控制器上使用 rapid-modbus-tcp 时，请遵守[《操作手册 - OmniCore 集成工程师指南》](https://search.abb.com/library/Download.aspx?DocumentID=3HAC065037-010&LanguageCode=zh&DocumentPartId=&Action=Launch)中 “OmniCore 网络安全” 章节规定的要求。
+
 
 如需报告 rapid-modbus-tcp 的安全漏洞，请查看安全策略 [Security Policy](https://github.com/ABB-RARO/rapid-modbus-tcp/blob/main/SECURITY.md) 
