@@ -14,7 +14,7 @@
 
 ## 快速开始
 注意: 在安装 “Modbus TCP for OmniCore” 插件(Add-in)时会自动安装本 RAPID 程序库。以下指南仅适用于未安装 Modbus TCP 插件的系统。
-###准备工作
+### 准备工作
 - 连接 RobotStudio 和目标 OmniCore 控制器, 用RobotStudio 的 “文件传输“（File Transfer）功能，将 `src\ModbusTCP` 文件夹复制到 `$HOME\ModbusTCP`
 - 用 RobotStudio 的 “配置（Configuration）/ 加载参数（Load Parameters...）” 功能，加载 `src\config\modbusTCP_SIO.cfg`; 或者在 RobotStudio 手动设置防火墙 `Configuration/Communication/Firewall Manager/RapidSockets/Enable on Private Network`为 Yes。
 
@@ -36,7 +36,7 @@
 ## 代码示例
 ### RAPID 代码示例
 - [`\ModbusTCP\example\ModbusServerInterfaceUser.modx`](https://github.com/ABB-RARO/rapid-modbus-tcp/blob/main/src/ModbusTCP/example/ModbusServerInterfaceUser.modx) 在 `T_ROB1` 运动任务中调用服务器 Server 例程. 
-- [`\ModbusTCP\example\ModbusClientUser.modx`](https://github.com/ABB-RARO/rapid-modbus-tcp/blob/main/src/ModbusTCP/example/ModbusTCPClientUser.modx) 在 `T_ROB1` 运动任务中调用客户端 ClientClient 例程. 
+- [`\ModbusTCP\example\ModbusClientUser.modx`](https://github.com/ABB-RARO/rapid-modbus-tcp/blob/main/src/ModbusTCP/example/ModbusTCPClientUser.modx) 在 `T_ROB1` 运动任务中调用客户端 Client 例程. 
 
 ### 西门子 PLC 示例 (PLC 作为 Modbus TCP 客户端)
 - [SCL 代码示例](https://github.com/ABB-RARO/rapid-modbus-tcp/blob/main/SCL_example.md)

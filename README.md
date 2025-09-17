@@ -13,7 +13,7 @@
 
 ## Quick Start
 Note: This library will be auto deployed by installing "Modbus TCP for OmniCore" Add-in. Below guidence is only for the system without Modbus TCP Add-In.
-###Preparation
+### Preparation
 - Connect the target OmniCore controller with RobotStudio, and copy `src\ModbusTCP` folder to `$HOME\ModbusTCP` by using `File Transfer` in RobotStudio
 - Load `src\config\modbusTCP_SIO.cfg` by using `Configuration/Load Parameters...` or Set `Configuration/Communication/Firewall Manager/RapidSockets/Enable on Private Network` as `Yes` manually in RobotStudio.
 
