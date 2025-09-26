@@ -5,6 +5,7 @@
 - **Server**: support Modbus function codes: FC01, FC03, FC05, FC06, FC0F, FC10, for reading and writing coils and hold registers. The server can communicate with only 1 client through Port 502 at any one time. Its communication period is 200ms.     
 - **Client**: support Modbus function codes: FC01, FC02, FC03, FC04, FC05, FC06, FC0F, FC10 for reading and writing coils, discrete inputs, input registers, and holding registers.  
 - **Gripper Template**: provide the RAPID interface for DH servo gripper on top of the client as the template.
+#### Notice：According to [the announcement of Modbus organization on 7/09/2020](https://www.modbus.org/news/modbus-organization-replaces-master-slave-with-client-server), "client-server" is used instead of "master-slave".
 
 ## Technical Requirements  
 - ABB Omnicore Controller  

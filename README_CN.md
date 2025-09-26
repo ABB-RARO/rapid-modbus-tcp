@@ -1,11 +1,12 @@
 # RAPID Modbus TCP
 
 ## 概述
-**RAPID Modbus TCP** 是用于ABB机器人控制器的 Modbus/TCP 客户端/服务器 RAPID 程序库。它实现了[Modbus 协议规范](https://modbus.org/docs/Modbus_Application_Protocol_V1_1b3.pdf)。该库包含3个部分，可根据需求独立安装。
+**RAPID Modbus TCP** 是用于ABB机器人控制器的 Modbus/TCP 客户端/服务端 RAPID 程序库。它实现了[Modbus 协议规范](https://modbus.org/docs/Modbus_Application_Protocol_V1_1b3.pdf)。该库包含3个部分，可根据需求独立安装。
   
-- **服务器**(Server):支持 Modbus 功能码 FC01、FC03、FC05、FC06、FC0F、FC10，用于读写线圈和保持寄存器。服务器在任意时刻只允许通过502端口与一个客户端通信，通信周期为 200 毫秒。     
+- **服务端**(Server):支持 Modbus 功能码 FC01、FC03、FC05、FC06、FC0F、FC10，用于读写线圈和保持寄存器。服务端在任意时刻只允许通过502端口与一个客户端通信，通信周期为 200 毫秒。     
 - **客户端**(Client):支持 Modbus 功能码 FC01、FC02、FC03、FC04、FC05、FC06、FC0F、FC10，用于读写线圈、离散输入、输入寄存器和保持寄存器。 
 - **夹爪模板**(Gripper Template):在客户端(Client)基础上以DH伺服夹爪为例，提供夹爪 RAPID 接口模板。
+#### 注意：依照 [Modbus组织在7/09/2020的声明](https://www.modbus.org/news/modbus-organization-replaces-master-slave-with-client-server), **服务端**(Server) 替代了原 “从站(Slave)"; **客户端**(Client) 替代了原 "主站(Master)"。
 
 ## 技术要求  
 - ABB Omnicore 机器人控制器  
@@ -18,7 +19,7 @@
 - 连接 RobotStudio 和目标 OmniCore 控制器, 用RobotStudio 的 “文件传输“（File Transfer）功能，将 `src\ModbusTCP` 文件夹复制到 `$HOME\ModbusTCP`
 - 用 RobotStudio 的 “配置（Configuration）/ 加载参数（Load Parameters...）” 功能，加载 `src\config\modbusTCP_SIO.cfg`; 或者在 RobotStudio 手动设置防火墙 `Configuration/Communication/Firewall Manager/RapidSockets/Enable on Private Network`为 Yes。
 
-### 服务器 Server
+### 服务端 Server
 1. 检查 RobotWare 系统，确保已安装 [3114-1 Multitasking] 选项
 2. 若客户端设备与虚拟控制器或真实控制器的服务端口连接，无需额外配置；若客户端设备与控制器的广域网端口 WAN 连接，需将 `ModbusServerMain.modx` 文件中 `MbServerConfig` 的 IP 地址修改为广域网 WAN IP
 3. 用 RobotStudio 的 “配置（Configuration）/ 加载参数（Load Parameters...）” 功能，加载 `src\config\Server` 文件夹下的配置文件
@@ -35,7 +36,7 @@
 
 ## 代码示例
 ### RAPID 代码示例
-- [`\ModbusTCP\example\ModbusServerInterfaceUser.modx`](https://github.com/ABB-RARO/rapid-modbus-tcp/blob/main/src/ModbusTCP/example/ModbusServerInterfaceUser.modx) 在 `T_ROB1` 运动任务中调用服务器 Server 例程. 
+- [`\ModbusTCP\example\ModbusServerInterfaceUser.modx`](https://github.com/ABB-RARO/rapid-modbus-tcp/blob/main/src/ModbusTCP/example/ModbusServerInterfaceUser.modx) 在 `T_ROB1` 运动任务中调用服务端 Server 例程. 
 - [`\ModbusTCP\example\ModbusClientUser.modx`](https://github.com/ABB-RARO/rapid-modbus-tcp/blob/main/src/ModbusTCP/example/ModbusTCPClientUser.modx) 在 `T_ROB1` 运动任务中调用客户端 Client 例程. 
 
 ### 西门子 PLC 示例 (PLC 作为 Modbus TCP 客户端)
