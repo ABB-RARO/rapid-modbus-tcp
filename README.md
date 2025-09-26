@@ -48,4 +48,3 @@ Note: This library will be auto deployed by installing "Modbus TCP for OmniCore"
 When using rapid-modbus-tcp with ABB robot controller, please comply with the requirements outlined in the "OmniCore Cybersecurity" section of the ["Operation Manual - OmniCore Integration Engineer Guide"](https://search.abb.com/library/Download.aspx?DocumentID=3HAC065037-001&DocumentRevisionId=W&Action=Launch).
 
 Please check the [Security Policy](https://github.com/ABB-RARO/rapid-modbus-tcp/blob/main/SECURITY.md) for reporting a security vulnerability of rapid-modbus-tcp. 
-
