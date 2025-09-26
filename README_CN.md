@@ -48,4 +48,3 @@
 在 ABB 机器人控制器上使用 rapid-modbus-tcp 时，请遵守[《操作手册 - OmniCore 集成工程师指南》](https://search.abb.com/library/Download.aspx?DocumentID=3HAC065037-010&LanguageCode=zh&DocumentPartId=&Action=Launch)中 “OmniCore 网络安全” 章节规定的要求。
 
 如需报告 rapid-modbus-tcp 的安全漏洞，请查看安全策略 [Security Policy](https://github.com/ABB-RARO/rapid-modbus-tcp/blob/main/SECURITY.md) 
-
