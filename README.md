@@ -5,6 +5,7 @@
 - **Server**: support Modbus function codes: FC01, FC03, FC05, FC06, FC0F, FC10, for reading and writing coils and hold registers. The server can communicate with only 1 client through Port 502 at any one time. Its communication period is 200ms.     
 - **Client**: support Modbus function codes: FC01, FC02, FC03, FC04, FC05, FC06, FC0F, FC10 for reading and writing coils, discrete inputs, input registers, and holding registers.  
 - **Gripper Template**: provide the RAPID interface for DH servo gripper on top of the client as the template.
+#### Notice：According to [the announcement of Modbus organization on 7/09/2020](https://www.modbus.org/news/modbus-organization-replaces-master-slave-with-client-server), "client-server" is used instead of "master-slave".
 
 ## Technical Requirements  
 - ABB Omnicore Controller  
@@ -47,3 +48,4 @@ Note: This library will be auto deployed by installing "Modbus TCP for OmniCore"
 When using rapid-modbus-tcp with ABB robot controller, please comply with the requirements outlined in the "OmniCore Cybersecurity" section of the ["Operation Manual - OmniCore Integration Engineer Guide"](https://search.abb.com/library/Download.aspx?DocumentID=3HAC065037-001&DocumentRevisionId=W&Action=Launch).
 
 Please check the [Security Policy](https://github.com/ABB-RARO/rapid-modbus-tcp/blob/main/SECURITY.md) for reporting a security vulnerability of rapid-modbus-tcp. 
+
